@@ -1,0 +1,12 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "FIRMAS_ORIGEN": "local",
+    "FIRMAS_CARPETA": "firmas_local",
+    "FIRMAS_IMAGEN_POR_DEFECTO": "gerente.png",
+    "FIRMA_MAX_PDF_MB": "25",
+    "FIRMA_TEXTO_SELLO": "Firmado electrónicamente por {nombre}{cargo} · {fecha} · {codigo} · Verif. {verif}"
+  }
+}

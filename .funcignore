@@ -1,0 +1,15 @@
+.git*
+.venv
+.vscode
+__pycache__
+*.pyc
+tests
+scripts
+infra
+firmas_local
+local.settings.json
+README.md
+requirements-dev.txt
+pytest.ini
+.pytest_cache
+.coverage

@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+local.settings.json
+# Las imágenes de firma NUNCA se versionan. La de prueba se genera con scripts/generar_firma_prueba.py
+firmas_local/
+*.pdf
+!tests/muestras/*.pdf
+salida/
+.playwright-mcp/
