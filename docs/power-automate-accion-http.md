@@ -19,8 +19,13 @@ Mientras no exista la solución, valen variables del flujo (`Inicializar variabl
 ## 1. Obtener el PDF original
 
 Acción **SharePoint → Obtener contenido del archivo** (`Get file content`) con el identificador del
-archivo `Original.pdf` de la carpeta de la solicitud. Su salida es
-`{"$content-type": "application/pdf", "$content": "<base64>"}`; se usa `$content` directo.
+archivo `Original.pdf` de la carpeta de la solicitud. Para el cuerpo de la petición se usa
+`base64(body('Obtener_contenido_del_archivo'))`, que es la forma documentada de convertir el
+contenido binario de esa acción a base64. (Su salida cruda es
+`{"$content-type": "application/pdf", "$content": "<base64>"}`, así que `?['$content']` también
+funciona, pero `base64()` no depende de ese formato interno.)
+
+Antes de integrar, conviene probar el API con un flujo aislado: `prueba-power-automate.md`.
 
 ## 2. Acción HTTP
 
@@ -39,7 +44,7 @@ Cuerpo (mínimo, solo la imagen en la última página):
 {
   "solicitud_id": @{triggerOutputs()?['body/ID']},
   "codigo": "@{triggerOutputs()?['body/Codigo']}",
-  "pdf_base64": "@{body('Obtener_contenido_del_archivo')?['$content']}",
+  "pdf_base64": "@{base64(body('Obtener_contenido_del_archivo'))}",
   "firmante": { "imagen_id": "@{parameters('ini_FIRMA_ImagenId')}" },
   "fecha_firma": "@{convertTimeZone(utcNow(), 'UTC', 'SA Pacific Standard Time', 'yyyy-MM-ddTHH:mm:ss')}"
 }
@@ -51,7 +56,7 @@ Cuerpo con posición por ancla (la firma se centra sobre el texto indicado, en l
 {
   "solicitud_id": @{triggerOutputs()?['body/ID']},
   "codigo": "@{triggerOutputs()?['body/Codigo']}",
-  "pdf_base64": "@{body('Obtener_contenido_del_archivo')?['$content']}",
+  "pdf_base64": "@{base64(body('Obtener_contenido_del_archivo'))}",
   "firmante": { "imagen_id": "@{parameters('ini_FIRMA_ImagenId')}" },
   "fecha_firma": "@{convertTimeZone(utcNow(), 'UTC', 'SA Pacific Standard Time', 'yyyy-MM-ddTHH:mm:ss')}",
   "posicion": {
