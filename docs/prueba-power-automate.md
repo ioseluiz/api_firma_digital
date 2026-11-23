@@ -41,7 +41,7 @@ Cuerpo. Los valores entre `@{...}` se ponen como **expresión** (pestaña *fx*),
 {
   "solicitud_id": 1,
   "codigo": "PRUEBA-PA-001",
-  "pdf_base64": "@{triggerBody()?['Documento']?['contentBytes']}",
+  "pdf_base64": "@{base64(triggerBody()?['Documento']?['contentBytes'])}",
   "firmante": { "imagen_id": "gerente.png" },
   "fecha_firma": "@{outputs('Fecha_firma')}",
   "posicion": {
@@ -56,9 +56,10 @@ Cuerpo. Los valores entre `@{...}` se ponen como **expresión** (pestaña *fx*),
 
 Notas:
 
-- `contentBytes` de una entrada de tipo Archivo **ya viene en base64**: se manda tal cual. Si en
-  lugar del desencadenador el PDF viniera de «Obtener contenido del archivo» (OneDrive o
-  SharePoint), la expresión sería `base64(body('Obtener_contenido_del_archivo'))`.
+- El `base64(...)` es obligatorio. Al interpolar `contentBytes` dentro de una cadena, Power
+  Automate convierte el archivo a texto y lo **decodifica**: el API recibe `%PDF-1.7 ...` con los
+  bytes rotos y responde 400. Si el PDF viniera de «Obtener contenido del archivo» (OneDrive o
+  SharePoint), la expresión es la misma idea: `base64(body('Obtener_contenido_del_archivo'))`.
 - Si no creaste la entrada `Ancla`, borra la línea de `ancla_texto` o deja `""`.
 - En **Configuración** de la acción HTTP (menú `…`): tiempo de espera `PT2M`; directiva de
   reintentos *exponencial*, 4 intentos, intervalo `PT20S`. En la prueba se puede dejar por defecto.
@@ -120,6 +121,7 @@ la acción HTTP debe dar **200** y en OneDrive aparece `<nombre>_firmado.pdf`.
 | Síntoma | Causa probable |
 |---|---|
 | HTTP 401 | Falta o está mal la cabecera `x-functions-key`. |
+| HTTP 400 `peticion_invalida` y el mensaje dice «trae el PDF decodificado» | Falta el `base64(...)` alrededor de `contentBytes`: en la entrada de la acción HTTP se ve `"pdf_base64": "%PDF-1.7..."`. |
 | HTTP 400 `peticion_invalida` y el mensaje nombra `pdf_base64` | La expresión de `contentBytes` quedó como texto, no como expresión, o el archivo no se adjuntó. |
 | HTTP 400 `pdf_invalido` | El archivo no es PDF o está protegido con contraseña. |
 | HTTP 404 `imagen_no_encontrada` | `imagen_id` distinto de `gerente.png` (la única subida en dev). |

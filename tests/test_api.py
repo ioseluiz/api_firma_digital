@@ -116,6 +116,16 @@ def test_firmar_acepta_data_uri_y_saltos_de_linea(app_local, pdf_1_pagina):
         assert resp.status_code == 200, resp.get_body()
 
 
+def test_firmar_pdf_decodificado_explica_el_error(app_local, pdf_1_pagina):
+    """Interpolar `contentBytes` en una cadena de Power Automate manda el PDF decodificado (empieza por %PDF)."""
+    crudo = pdf_1_pagina.decode("utf-8", errors="replace")
+    resp = app_local.firmar.build().get_user_function()(peticion(cuerpo_valido(pdf_1_pagina, pdf_base64=crudo)))
+    assert resp.status_code == 400
+    datos = json.loads(resp.get_body())
+    assert datos["error"] == "peticion_invalida"
+    assert "base64(" in datos["mensaje"]
+
+
 def test_firmar_objeto_sin_content_es_peticion_invalida(app_local, pdf_1_pagina):
     resp = app_local.firmar.build().get_user_function()(peticion(cuerpo_valido(pdf_1_pagina, pdf_base64={"nombre": "x.pdf"})))
     assert resp.status_code == 400

@@ -73,6 +73,12 @@ class FirmaRequest(BaseModel):
         if v.startswith("data:"):
             coma = v.find(",")
             v = v[coma + 1:] if coma >= 0 else ""
+        if v.startswith("%PDF"):
+            raise ValueError(
+                "pdf_base64 trae el PDF decodificado, no en base64. En Power Automate interpolar un archivo "
+                "dentro de una cadena lo decodifica: use base64(triggerBody()?['Documento']?['contentBytes']) "
+                "o base64(body('Obtener_contenido_del_archivo'))"
+            )
         return "".join(v.split())
 
     @field_validator("fecha_firma")
