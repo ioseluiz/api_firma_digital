@@ -37,6 +37,26 @@
     },
     "duracion_ms": {
       "type": "integer"
+    },
+    "firma_mm": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "ancho": {
+          "type": "number"
+        },
+        "alto": {
+          "type": "number"
+        }
+      }
     }
   },
   "type": "object"

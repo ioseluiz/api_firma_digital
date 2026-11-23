@@ -32,7 +32,7 @@ from pydantic import ValidationError
 
 from firma import VERSION
 from firma.errores import ErrorFirma, PdfDemasiadoGrande, PdfInvalido, PeticionInvalida, VisorNoEncontrado
-from firma.estampar import TEXTO_SELLO_POR_DEFECTO, ParametrosEstampado, estampar, rect_pagina_en_lienzo
+from firma.estampar import PT_POR_MM, TEXTO_SELLO_POR_DEFECTO, ParametrosEstampado, estampar, rect_pagina_en_lienzo
 from firma.imagenes import OrigenImagenes, origen_desde_entorno
 from firma.modelos import (
     lienzo_a_tupla,
@@ -442,6 +442,12 @@ def firmar(req: func.HttpRequest) -> func.HttpResponse:
             paginas=resultado.paginas,
             pagina_firmada=resultado.pagina_firmada,
             ancla_encontrada=resultado.ancla_encontrada,
+            firma_mm={
+                "x": round(resultado.rect_firma[0] / PT_POR_MM, 1),
+                "y": round(resultado.rect_firma[1] / PT_POR_MM, 1),
+                "ancho": round((resultado.rect_firma[2] - resultado.rect_firma[0]) / PT_POR_MM, 1),
+                "alto": round((resultado.rect_firma[3] - resultado.rect_firma[1]) / PT_POR_MM, 1),
+            },
             firmante=peticion.firmante.nombre,
             fecha_firma=peticion.fecha_firma,
             duracion_ms=duracion_ms,

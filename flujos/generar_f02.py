@@ -219,7 +219,10 @@ def construir() -> dict:
         "Bitacora_firmado": bitacora(
             "Firmado", "@toLower(coalesce(outputs('Firmante')?['Email'], triggerOutputs()?['body/Editor/Email'], ''))",
             "@concat('Firmado.pdf · pág ', string(body('Analizar_respuesta')?['pagina_firmada']), '/', string(body('Analizar_respuesta')?['paginas']), "
-            "' · ancla=', string(body('Analizar_respuesta')?['ancla_encontrada']), ' · sha256=', body('Analizar_respuesta')?['sha256'], "
+            "' · ancla=', string(body('Analizar_respuesta')?['ancla_encontrada']), "
+            "' · firma_mm=', string(body('Analizar_respuesta')?['firma_mm']), "
+            "' · clic=', string(triggerOutputs()?['body/Firma_X_pct']), '/', string(triggerOutputs()?['body/Firma_Y_pct']), "
+            "' · sha256=', body('Analizar_respuesta')?['sha256'], "
             "' · verif=', body('Analizar_respuesta')?['codigo_verificacion'], ' · ', string(body('Analizar_respuesta')?['duracion_ms']), ' ms')",
             ok("Pasar_a_firmado"),
         ),

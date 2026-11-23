@@ -176,6 +176,7 @@ Respuesta `200`:
   "codigo_verificacion": "3A7F0C21B9E4",
   "paginas": 5,
   "pagina_firmada": 5,
+  "firma_mm": { "x": 120.0, "y": 221.4, "ancho": 50.0, "alto": 18.0 },
   "ancla_encontrada": true,
   "firmante": "Ing. Juan Pérez",
   "fecha_firma": "2026-11-18T14:05:12",

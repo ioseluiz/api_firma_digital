@@ -124,6 +124,7 @@ class FirmaResponse(BaseModel):
     paginas: int
     pagina_firmada: int
     ancla_encontrada: Optional[bool] = Field(default=None, description="null si no se pidió ancla")
+    firma_mm: Optional[dict[str, float]] = Field(default=None, description="Dónde quedó la imagen en la página firmada: x, y (esquina superior izquierda, desde arriba a la izquierda), ancho, alto, en mm")
     firmante: str
     fecha_firma: str
     duracion_ms: int

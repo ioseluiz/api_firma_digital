@@ -523,6 +523,26 @@
                         },
                         "duracion_ms": {
                           "type": "integer"
+                        },
+                        "firma_mm": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "properties": {
+                            "x": {
+                              "type": "number"
+                            },
+                            "y": {
+                              "type": "number"
+                            },
+                            "ancho": {
+                              "type": "number"
+                            },
+                            "alto": {
+                              "type": "number"
+                            }
+                          }
                         }
                       },
                       "type": "object"
@@ -627,7 +647,7 @@
                       "item/Codigo": "@triggerOutputs()?['body/Codigo']",
                       "item/Evento": "Firmado",
                       "item/Actor_Email": "@toLower(coalesce(outputs('Firmante')?['Email'], triggerOutputs()?['body/Editor/Email'], ''))",
-                      "item/Detalle": "@concat('Firmado.pdf · pág ', string(body('Analizar_respuesta')?['pagina_firmada']), '/', string(body('Analizar_respuesta')?['paginas']), ' · ancla=', string(body('Analizar_respuesta')?['ancla_encontrada']), ' · sha256=', body('Analizar_respuesta')?['sha256'], ' · verif=', body('Analizar_respuesta')?['codigo_verificacion'], ' · ', string(body('Analizar_respuesta')?['duracion_ms']), ' ms')",
+                      "item/Detalle": "@concat('Firmado.pdf · pág ', string(body('Analizar_respuesta')?['pagina_firmada']), '/', string(body('Analizar_respuesta')?['paginas']), ' · ancla=', string(body('Analizar_respuesta')?['ancla_encontrada']), ' · firma_mm=', string(body('Analizar_respuesta')?['firma_mm']), ' · clic=', string(triggerOutputs()?['body/Firma_X_pct']), '/', string(triggerOutputs()?['body/Firma_Y_pct']), ' · sha256=', body('Analizar_respuesta')?['sha256'], ' · verif=', body('Analizar_respuesta')?['codigo_verificacion'], ' · ', string(body('Analizar_respuesta')?['duracion_ms']), ' ms')",
                       "item/Fecha": "@utcNow()"
                     },
                     "authentication": "@parameters('$authentication')"

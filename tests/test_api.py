@@ -52,6 +52,7 @@ def test_firmar_ok(app_local, pdf_con_ancla):
     assert datos["ok"] is True
     assert datos["codigo"] == "FIRMA-2026-000123"
     assert datos["paginas"] == 3 and datos["pagina_firmada"] == 3 and datos["ancla_encontrada"] is True
+    assert set(datos["firma_mm"]) == {"x", "y", "ancho", "alto"} and 0 < datos["firma_mm"]["x"] < 210 and datos["firma_mm"]["ancho"] > 0
     assert len(datos["sha256"]) == 64 and len(datos["codigo_verificacion"]) == 12
     pdf = base64.b64decode(datos["pdf_firmado_base64"])
     doc = pymupdf.open(stream=pdf, filetype="pdf")
