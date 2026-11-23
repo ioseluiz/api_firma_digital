@@ -1,0 +1,75 @@
+# CI/CD del servicio de firma.
+#   push a main  → pruebas (pytest) → despliegue a func-ini-firma-dev
+#   manual       → pestaña Actions → "Run workflow"
+#
+# Autenticación en Azure sin secretos: la identidad administrada `id-github-ini-firma`
+# (rg-ini-firma-dev) tiene una credencial federada que solo acepta tokens OIDC emitidos por
+# GitHub para ESTE repositorio y la rama main. Los tres IDs de abajo son identificadores, no
+# credenciales; sin el token OIDC de este repo no sirven para nada.
+
+name: Pruebas y despliegue (dev)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AZURE_CLIENT_ID: 73ff32cd-5894-44e3-8bef-7592a76c5028        # client id de id-github-ini-firma
+  AZURE_TENANT_ID: e9d094df-e4a7-405f-aeaf-13ec2fb28cef        # tenant
+  AZURE_SUBSCRIPTION_ID: c0c70e3b-2398-4a0e-a26b-24e3aaa2e6ed  # suscripción
+  FUNCTION_APP_NAME: func-ini-firma-dev
+  PYTHON_VERSION: "3.12"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  pruebas:
+    name: Pruebas (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q
+
+  desplegar:
+    name: Desplegar a dev
+    needs: pruebas
+    runs-on: ubuntu-latest
+    environment:
+      name: dev
+      url: https://func-ini-firma-dev.azurewebsites.net/api/v1/salud
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Iniciar sesión en Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Publicar en la Function App (compilación remota)
+        uses: azure/functions-action@v1
+        with:
+          app-name: ${{ env.FUNCTION_APP_NAME }}
+          package: .
+          remote-build: true
+
+      - name: Verificar /salud
+        shell: bash
+        run: |
+          KEY=$(az functionapp keys list -g rg-ini-firma-dev -n "$FUNCTION_APP_NAME" --query functionKeys.default -o tsv)
+          for i in $(seq 1 12); do
+            CODE=$(curl -s -o /tmp/salud.json -w '%{http_code}' -H "x-functions-key: $KEY" \
+                   "https://$FUNCTION_APP_NAME.azurewebsites.net/api/v1/salud" || true)
+            if [ "$CODE" = "200" ]; then cat /tmp/salud.json; echo; exit 0; fi
+            echo "intento $i: HTTP $CODE, esperando..."; sleep 10
+          done
+          echo "::error::/salud no respondió 200 tras el despliegue"; exit 1
