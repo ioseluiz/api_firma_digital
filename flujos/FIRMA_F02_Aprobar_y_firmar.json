@@ -304,7 +304,9 @@
                 "ancho_mm": "@float(coalesce(first(body('Param_Ancho'))?['Valor'], '50'))",
                 "ancla_texto": "@coalesce(first(body('Param_Ancla'))?['Valor'], '')",
                 "ancla_alineacion": "centro",
-                "si_no_hay_ancla": "posicion_fija"
+                "si_no_hay_ancla": "posicion_fija",
+                "x_pct": "@triggerOutputs()?['body/Firma_X_pct']",
+                "y_pct": "@triggerOutputs()?['body/Firma_Y_pct']"
               },
               "runAfter": {
                 "Param_X": [

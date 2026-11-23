@@ -48,6 +48,8 @@ class ParametrosEstampado:
     ancho_mm: float = 50.0
     x_pct: Optional[float] = None            # centro de la firma, % del ancho de la página desde la izquierda
     y_pct: Optional[float] = None            # centro de la firma, % del alto de la página desde ARRIBA (como un clic)
+    lienzo: Optional[tuple[float, float]] = None  # (ancho, alto) del lienzo donde la app mostró la página ajustada y
+                                                  # centrada; si viene, x_pct/y_pct son % de ese lienzo, no de la página
     ancla_texto: str = ""
     ancla_alineacion: str = "centro"         # "centro": centrada sobre el ancla; "izquierda": alineada a su borde izquierdo
     si_no_hay_ancla: str = "posicion_fija"   # o "error"
@@ -161,6 +163,27 @@ def _ajustar_dentro(rect: pymupdf.Rect, pagina: pymupdf.Rect, margen_pt: float =
     return r
 
 
+def rect_pagina_en_lienzo(ancho_pag: float, alto_pag: float, lienzo_ancho: float, lienzo_alto: float) -> pymupdf.Rect:
+    """Dónde queda la página dentro de un lienzo de proporción lienzo_ancho:lienzo_alto cuando se ajusta entera
+    y centrada (lo que la app dibuja). En unidades del lienzo. La misma fórmula la usa el visor para pintar la
+    página y el estampado para deshacer el clic: por eso coinciden aunque la página sea carta, legal o apaisada."""
+    escala = min(lienzo_ancho / ancho_pag, lienzo_alto / alto_pag)
+    dw, dh = ancho_pag * escala, alto_pag * escala
+    ox, oy = (lienzo_ancho - dw) / 2.0, (lienzo_alto - dh) / 2.0
+    return pymupdf.Rect(ox, oy, ox + dw, oy + dh)
+
+
+def pct_lienzo_a_pagina(
+    x_pct: float, y_pct: float, ancho_pag: float, alto_pag: float, lienzo: tuple[float, float]
+) -> tuple[float, float]:
+    """Un clic en % del lienzo → % de la página. Un clic en el margen gris se recorta al borde de la página."""
+    r = rect_pagina_en_lienzo(ancho_pag, alto_pag, lienzo[0], lienzo[1])
+    lx, ly = lienzo[0] * x_pct / 100.0, lienzo[1] * y_pct / 100.0
+    px = (lx - r.x0) / r.width * 100.0
+    py = (ly - r.y0) / r.height * 100.0
+    return min(max(px, 0.0), 100.0), min(max(py, 0.0), 100.0)
+
+
 def _rect_firma(
     page: pymupdf.Page, p: ParametrosEstampado, ancho_pt: float, alto_pt: float
 ) -> tuple[pymupdf.Rect, Optional[bool], Optional[pymupdf.Rect]]:
@@ -170,8 +193,11 @@ def _rect_firma(
 
     # Clic del gerente en la app: manda sobre el ancla y sobre la posición fija.
     if p.x_pct is not None and p.y_pct is not None:
-        cx = rect_pagina.x0 + rect_pagina.width * p.x_pct / 100.0
-        cy = rect_pagina.y0 + rect_pagina.height * p.y_pct / 100.0
+        x_pct, y_pct = p.x_pct, p.y_pct
+        if p.lienzo:
+            x_pct, y_pct = pct_lienzo_a_pagina(x_pct, y_pct, rect_pagina.width, rect_pagina.height, p.lienzo)
+        cx = rect_pagina.x0 + rect_pagina.width * x_pct / 100.0
+        cy = rect_pagina.y0 + rect_pagina.height * y_pct / 100.0
         rect = pymupdf.Rect(cx - ancho_pt / 2, cy - alto_pt / 2, cx + ancho_pt / 2, cy + alto_pt / 2)
         return _ajustar_dentro(rect, rect_pagina), None, None
 

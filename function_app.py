@@ -32,9 +32,10 @@ from pydantic import ValidationError
 
 from firma import VERSION
 from firma.errores import ErrorFirma, PdfDemasiadoGrande, PdfInvalido, PeticionInvalida, VisorNoEncontrado
-from firma.estampar import TEXTO_SELLO_POR_DEFECTO, ParametrosEstampado, estampar
+from firma.estampar import TEXTO_SELLO_POR_DEFECTO, ParametrosEstampado, estampar, rect_pagina_en_lienzo
 from firma.imagenes import OrigenImagenes, origen_desde_entorno
 from firma.modelos import (
+    lienzo_a_tupla,
     CODIGO_PATRON, ErrorResponse, FirmaRequest, FirmaResponse, PaginaInfo, SaludResponse,
     VisorBorradoResponse, VisorInfoResponse, VisorRequest, VisorResponse,
 )
@@ -351,14 +352,27 @@ def visor_pagina(req: func.HttpRequest) -> func.HttpResponse:
             numero = 0
         import pymupdf
 
+        lienzo = lienzo_a_tupla(req.params.get("lienzo")) if re.fullmatch(r"[1-9]\d{0,4}x[1-9]\d{0,4}", req.params.get("lienzo") or "") else None
         with pymupdf.open(stream=pdf, filetype="pdf") as doc:
             if numero == 0:
                 numero = doc.page_count
             if numero < 1 or numero > doc.page_count:
                 return func.HttpResponse("Página fuera de rango.", status_code=404, mimetype="text/plain", headers=_cors())
             page = doc[numero - 1]
-            escala = 1000.0 / max(page.rect.width, 1)
-            png = page.get_pixmap(matrix=pymupdf.Matrix(escala, escala), alpha=False).tobytes("png")
+            if lienzo:
+                # La página ajustada y centrada en un lienzo de esa proporción, con margen gris: la app pone la
+                # imagen en un control de la misma proporción (estirada) y el clic se mide en % del lienzo.
+                with pymupdf.open() as hoja:
+                    pg = hoja.new_page(width=lienzo[0], height=lienzo[1])
+                    pg.draw_rect(pg.rect, color=None, fill=(0.90, 0.90, 0.90))
+                    destino = rect_pagina_en_lienzo(page.rect.width, page.rect.height, lienzo[0], lienzo[1])
+                    pg.draw_rect(destino, color=None, fill=(1, 1, 1))  # el fondo de un PDF es transparente: sin esto se vería gris
+                    pg.show_pdf_page(destino, doc, numero - 1)
+                    escala = 1000.0 / lienzo[0]
+                    png = pg.get_pixmap(matrix=pymupdf.Matrix(escala, escala), alpha=False).tobytes("png")
+            else:
+                escala = 1000.0 / max(page.rect.width, 1)
+                png = page.get_pixmap(matrix=pymupdf.Matrix(escala, escala), alpha=False).tobytes("png")
         log.info("visor pagina codigo=%s n=%d bytes=%d corr=%s", codigo, numero, len(png), correlation_id)
         return func.HttpResponse(png, status_code=200, mimetype="image/png",
                                  headers={**_cors(), "Cache-Control": "private, max-age=300", "X-Correlation-Id": correlation_id})
@@ -409,6 +423,7 @@ def firmar(req: func.HttpRequest) -> func.HttpResponse:
             ancho_mm=peticion.posicion.ancho_mm,
             x_pct=peticion.posicion.x_pct,
             y_pct=peticion.posicion.y_pct,
+            lienzo=lienzo_a_tupla(peticion.posicion.lienzo),
             ancla_texto=peticion.posicion.ancla_texto,
             ancla_alineacion=peticion.posicion.ancla_alineacion,
             si_no_hay_ancla=peticion.posicion.si_no_hay_ancla,

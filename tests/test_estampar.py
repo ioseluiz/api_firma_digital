@@ -238,3 +238,49 @@ def test_posicion_por_porcentaje_en_el_borde_se_queda_dentro(pdf_1_pagina, image
     page = pymupdf.open(stream=r.pdf, filetype="pdf")[0]
     x0, y0, x1, y1 = r.rect_firma
     assert x1 <= page.rect.width and y1 <= page.rect.height and x0 >= 0 and y0 >= 0
+
+
+def test_lienzo_convierte_el_clic_a_porcentaje_de_pagina():
+    from firma.estampar import pct_lienzo_a_pagina, rect_pagina_en_lienzo
+
+    # Carta (612x792 pt) en un lienzo 880x640: cabe por alto; queda centrada con margen a los lados.
+    r = rect_pagina_en_lienzo(612, 792, 880, 640)
+    assert abs(r.height - 640) < 1e-6 and abs(r.width - 612 * 640 / 792) < 1e-6
+    assert abs((r.x0 + r.x1) / 2 - 440) < 1e-6
+    # El centro del lienzo es el centro de la página.
+    cx, cy = pct_lienzo_a_pagina(50, 50, 612, 792, (880, 640))
+    assert abs(cx - 50) < 1e-9 and abs(cy - 50) < 1e-9
+    # El borde izquierdo de la página dibujada equivale a x=0 %.
+    x, y = pct_lienzo_a_pagina(r.x0 / 880 * 100, 0, 612, 792, (880, 640))
+    assert abs(x) < 1e-6 and abs(y) < 1e-6
+    # Un clic en el margen gris se recorta al borde.
+    assert pct_lienzo_a_pagina(0, 50, 612, 792, (880, 640))[0] == 0.0
+    # Apaisada en un lienzo más alto que ella: cabe por ancho y se centra verticalmente.
+    r2 = rect_pagina_en_lienzo(792, 612, 1000, 900)
+    assert abs(r2.width - 1000) < 1e-6 and abs((r2.y0 + r2.y1) / 2 - 450) < 1e-6
+
+
+def test_posicion_por_porcentaje_con_lienzo(pdf_1_pagina, imagen_firma, fecha):
+    import pymupdf
+
+    from firma.estampar import ParametrosEstampado, estampar, rect_pagina_en_lienzo
+
+    page = pymupdf.open(stream=pdf_1_pagina, filetype="pdf")[0]
+    r_l = rect_pagina_en_lienzo(page.rect.width, page.rect.height, 880, 640)
+    # Clic en el punto del lienzo que corresponde al 25 % / 75 % de la página.
+    x_pct = (r_l.x0 + r_l.width * 0.25) / 880 * 100
+    y_pct = (r_l.y0 + r_l.height * 0.75) / 640 * 100
+    r = estampar(pdf_1_pagina, imagen_firma, ParametrosEstampado(codigo="X-1", fecha_firma=fecha, x_pct=x_pct, y_pct=y_pct, lienzo=(880, 640)))
+    x0, y0, x1, y1 = r.rect_firma
+    assert abs((x0 + x1) / 2 - page.rect.width * 0.25) < 1 and abs((y0 + y1) / 2 - page.rect.height * 0.75) < 1
+
+
+def test_modelo_posicion_valida_lienzo():
+    import pytest as _pt
+
+    from firma.modelos import Posicion, lienzo_a_tupla
+
+    assert Posicion(lienzo="880x640").lienzo == "880x640" and lienzo_a_tupla("880x640") == (880.0, 640.0)
+    assert lienzo_a_tupla(None) is None and Posicion().lienzo is None
+    with _pt.raises(Exception):
+        Posicion(lienzo="880 x 640")

@@ -320,6 +320,9 @@ def construir() -> dict:
             "ancla_texto": "@coalesce(first(body('Param_Ancla'))?['Valor'], '')",
             "ancla_alineacion": "centro",
             "si_no_hay_ancla": "posicion_fija",
+            # Clic del gerente en la app (centro de la firma, % de la página). null = sin clic: el API usa ancla/posición fija.
+            "x_pct": "@triggerOutputs()?['body/Firma_X_pct']",
+            "y_pct": "@triggerOutputs()?['body/Firma_Y_pct']",
         }, ok("Param_X", "Param_Y", "Param_Ancho", "Param_Ancla", "Param_Sello")),
         "Validar_aprobacion": {
             "type": "If",

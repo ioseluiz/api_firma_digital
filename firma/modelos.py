@@ -54,6 +54,14 @@ class Firmante(BaseModel):
     )
 
 
+def lienzo_a_tupla(lienzo: Optional[str]) -> Optional[tuple[float, float]]:
+    """'880x640' → (880.0, 640.0); None o vacío → None."""
+    if not lienzo:
+        return None
+    a, b = lienzo.lower().split("x")
+    return float(a), float(b)
+
+
 class Posicion(BaseModel):
     pagina: int = Field(default=0, ge=0, description="0 = última página; n = página n (base 1)")
     x_mm: float = Field(default=120.0, ge=0, description="Desde el borde izquierdo, en mm")
@@ -61,6 +69,7 @@ class Posicion(BaseModel):
     ancho_mm: float = Field(default=50.0, gt=0, le=200)
     x_pct: Optional[float] = Field(default=None, ge=0, le=100, description="Centro de la firma como % del ancho de la página desde la izquierda (clic del gerente). Con y_pct, manda sobre ancla y posición fija")
     y_pct: Optional[float] = Field(default=None, ge=0, le=100, description="Centro de la firma como % del alto de la página desde arriba")
+    lienzo: Optional[str] = Field(default=None, pattern=r"^[1-9]\d{0,4}x[1-9]\d{0,4}$", description="'AnchoxAlto' del lienzo en que la app mostró la página (GET /visor/{codigo}/pagina/{n}/{token}?lienzo=AnchoxAlto). Si viene, x_pct/y_pct son % de ese lienzo")
     ancla_texto: str = Field(default="", max_length=120, description="Texto a buscar en la página; si aparece, la firma se coloca sobre él")
     ancla_alineacion: Literal["centro", "izquierda"] = Field(
         default="centro",

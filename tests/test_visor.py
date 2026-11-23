@@ -272,6 +272,19 @@ def test_info_y_pagina_png(app_visor, pdf_con_ancla, monkeypatch):
     assert png.status_code == 200 and png.mimetype == "image/png" and png.get_body().startswith(b"\x89PNG")
     ultima = _ruta_anonima(app_visor, "visor_pagina", "FIRMA-2026-000012", token, {"numero": "0"})
     assert ultima.status_code == 200
+    # Con lienzo: la imagen tiene exactamente la proporción pedida (1000 px de ancho).
+    import azure.functions as func
+    req = func.HttpRequest(method="GET", url="http://localhost/api/v1/x", body=b"", headers={},
+                           params={"lienzo": "880x640"},
+                           route_params={"codigo": "FIRMA-2026-000012", "token": token, "numero": "1"})
+    con_lienzo = app_visor.visor_pagina.build().get_user_function()(req)
+    assert con_lienzo.status_code == 200
+    import pymupdf
+    pix = pymupdf.Pixmap(con_lienzo.get_body())
+    assert pix.width == 1000 and abs(pix.height - 1000 * 640 / 880) <= 1
+    # Los bordes del lienzo quedan grises (margen), el centro es la página en blanco.
+    # A4 en 880x640 ocupa x≈243..757 px: el borde del lienzo es gris y la esquina superior de la página, blanca.
+    assert pix.pixel(2, pix.height // 2)[0] < 240 and pix.pixel(300, 5)[0] > 250
     assert _ruta_anonima(app_visor, "visor_pagina", "FIRMA-2026-000012", token, {"numero": "9"}).status_code == 404
     assert _ruta_anonima(app_visor, "visor_pagina", "FIRMA-2026-000012", "0" * 32, {"numero": "1"}).status_code == 404
 
