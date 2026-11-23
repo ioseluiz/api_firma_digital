@@ -67,6 +67,9 @@ Cuerpo con posición por ancla (la firma se centra sobre el texto indicado, en l
   "fecha_firma": "@{convertTimeZone(utcNow(), 'UTC', 'SA Pacific Standard Time', 'yyyy-MM-ddTHH:mm:ss')}",
   "posicion": {
     "pagina": @{coalesce(triggerOutputs()?['body/Pagina_Firma'], 0)},
+    "x_pct": @{triggerOutputs()?['body/Firma_X_pct']},        // clic del gerente en la app (null = sin clic)
+    "y_pct": @{triggerOutputs()?['body/Firma_Y_pct']},
+    "lienzo": @{if(empty(triggerOutputs()?['body/Firma_Lienzo']), null, triggerOutputs()?['body/Firma_Lienzo'])},
     "ancla_texto": "@{coalesce(triggerOutputs()?['body/Ancla_Texto'], '')}",
     "ancla_alineacion": "centro",
     "x_mm": 120, "y_mm": 40, "ancho_mm": 40,

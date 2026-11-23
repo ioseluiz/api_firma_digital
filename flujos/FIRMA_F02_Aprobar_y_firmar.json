@@ -306,7 +306,8 @@
                 "ancla_alineacion": "centro",
                 "si_no_hay_ancla": "posicion_fija",
                 "x_pct": "@triggerOutputs()?['body/Firma_X_pct']",
-                "y_pct": "@triggerOutputs()?['body/Firma_Y_pct']"
+                "y_pct": "@triggerOutputs()?['body/Firma_Y_pct']",
+                "lienzo": "@if(empty(triggerOutputs()?['body/Firma_Lienzo']), null, triggerOutputs()?['body/Firma_Lienzo'])"
               },
               "runAfter": {
                 "Param_X": [

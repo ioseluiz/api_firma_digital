@@ -323,6 +323,8 @@ def construir() -> dict:
             # Clic del gerente en la app (centro de la firma, % de la página). null = sin clic: el API usa ancla/posición fija.
             "x_pct": "@triggerOutputs()?['body/Firma_X_pct']",
             "y_pct": "@triggerOutputs()?['body/Firma_Y_pct']",
+            # 'AnchoxAlto' del lienzo en que la app mostró la página (la app lo escribe junto al clic); vacío = % de la página.
+            "lienzo": "@if(empty(triggerOutputs()?['body/Firma_Lienzo']), null, triggerOutputs()?['body/Firma_Lienzo'])",
         }, ok("Param_X", "Param_Y", "Param_Ancho", "Param_Ancla", "Param_Sello")),
         "Validar_aprobacion": {
             "type": "If",

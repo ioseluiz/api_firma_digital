@@ -152,6 +152,8 @@ Petición completa:
 | `posicion.pagina` | `0` = última página; `n` = página `n` (base 1). |
 | `posicion.x_mm`, `y_mm` | Posición fija: desde el borde izquierdo y desde el borde **inferior** hasta la base de la imagen. |
 | `posicion.ancho_mm` | Ancho de la imagen; el alto se calcula con la proporción del PNG. |
+| `posicion.x_pct`, `y_pct` | **Clic del gerente** (0..100): el **centro** de la firma como % del ancho (desde la izquierda) y del alto (desde **arriba**) de la página. Si vienen los dos, mandan sobre el ancla y la posición fija. |
+| `posicion.lienzo` | `'AnchoxAlto'` (p. ej. `880x600`). Si viene, `x_pct`/`y_pct` son % de ese lienzo, en el que la app mostró la página ajustada y centrada (`GET …/visor/{codigo}/pagina/{n}/{token}?lienzo=880x600`); el API deshace la misma geometría. Sin él, son % de la página. |
 | `posicion.ancla_texto` | Si se indica y aparece en la página, la firma se apoya sobre la **última** aparición. |
 | `posicion.ancla_alineacion` | `centro` (por defecto): centrada sobre el rótulo, para bloques «línea y debajo el cargo». `izquierda`: alineada al borde izquierdo del rótulo, para «Firma: ______». |
 | `posicion.si_no_hay_ancla` | `posicion_fija` (por defecto: usa `x_mm`/`y_mm` y responde `ancla_encontrada: false`) o `error` (responde 422). |
@@ -238,6 +240,13 @@ POST /api/v1/visor
 - Es idempotente (reintentos de F01 sobrescriben). Los blobs que queden los borra la política de
   ciclo de vida del contenedor a los 30 días.
 - `503 visor_no_disponible` cuando `VISOR_ORIGEN=ninguno` (desarrollo local sin Azure).
+- **Rutas anónimas para elegir la posición de la firma** (mismo token que `abrir`, CORS `*`, caché privada 5 min):
+  `GET …/visor/{codigo}/info/{token}` → `{"paginas": n, "tamanos": [{"pagina", "ancho_mm", "alto_mm"}, …]}`;
+  `GET …/visor/{codigo}/pagina/{n}/{token}` → la página `n` como PNG de 1000 px de ancho (`0` = última);
+  con `?lienzo=AnchoxAlto` la página se dibuja ajustada y centrada sobre un lienzo gris de esa proporción
+  (1000 px de ancho). La app «INI Firma» pone ese PNG estirado en un control de imagen de 880×600 con una
+  cuadrícula transparente encima; el clic se guarda como % del lienzo y F02 lo manda en `posicion`
+  (`x_pct`, `y_pct`, `lienzo`), así la firma cae donde el gerente pulsó sea cual sea el tamaño de la página.
 
 ### `GET /api/v1/salud`
 
