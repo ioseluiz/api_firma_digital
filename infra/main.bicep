@@ -191,6 +191,9 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
     siteConfig: {
       minTlsVersion: '1.2'
       ftpsState: 'Disabled'
+      // El control PDF de Power Apps descarga la URL del visor desde el navegador: la ruta anónima /visor/{codigo}/abrir/{token}
+      // necesita CORS. El token HMAC es la puerta; el origen abierto no expone nada más.
+      cors: { allowedOrigins: ['*'], supportCredentials: false }
       appSettings: [
         { name: 'AzureWebJobsStorage__accountName', value: storage.name }
         { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }

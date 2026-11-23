@@ -36,6 +36,16 @@ class FalsoBlobClient:
             raise ResourceNotFoundError("no existe")
         del self._almacen[self._nombre]
 
+    def download_blob(self):
+        if self._nombre not in self._almacen:
+            raise ResourceNotFoundError("no existe")
+        datos = self._almacen[self._nombre]["data"]
+
+        class D:
+            def readall(self_inner):
+                return datos
+        return D()
+
 
 class FalsoBlobServiceClient:
     """Imita lo que `AlmacenVisorBlob` usa: clave de delegación y clientes de blob."""
@@ -213,16 +223,19 @@ def test_con_secreto_la_url_visor_es_corta_y_estable(app_visor, pdf_1_pagina, mo
     assert d2["url_visor"] == d["url_visor"]
 
 
-def test_abrir_redirige_a_un_sas_fresco(app_visor, pdf_1_pagina, monkeypatch):
+def test_abrir_sirve_el_pdf_con_cors(app_visor, pdf_1_pagina, monkeypatch):
     monkeypatch.setenv("VISOR_SECRETO", "clave-de-prueba")
     assert _publicar(app_visor, pdf_1_pagina).status_code == 200
     token = token_para("FIRMA-2026-000012", "clave-de-prueba")
     resp = _abrir(app_visor, "FIRMA-2026-000012", token)
-    assert resp.status_code == 302
-    destino = resp.headers["Location"]
-    assert destino.startswith("https://cuenta.blob.core.windows.net/visor/FIRMA-2026-000012.pdf?") and "sig=" in destino
-    assert resp.headers["Cache-Control"] == "no-store"
-    assert _abrir(app_visor, "FIRMA-2026-000012", token, "HEAD").status_code == 302
+    assert resp.status_code == 200 and resp.mimetype == "application/pdf"
+    assert resp.get_body() == pdf_1_pagina
+    assert resp.headers["Access-Control-Allow-Origin"] == "*"
+    assert resp.headers["Content-Disposition"].startswith("inline;")
+    head = _abrir(app_visor, "FIRMA-2026-000012", token, "HEAD")
+    assert head.status_code == 200 and head.get_body() == b""
+    pre = _abrir(app_visor, "FIRMA-2026-000012", token, "OPTIONS")
+    assert pre.status_code == 204 and "GET" in pre.headers["Access-Control-Allow-Methods"]
 
 
 def test_abrir_rechaza_token_malo_y_blob_inexistente(app_visor, pdf_1_pagina, monkeypatch):

@@ -71,6 +71,8 @@ class AlmacenVisor(Protocol):
 
     def renovar(self, codigo: str) -> ResultadoVisor: ...
 
+    def leer(self, codigo: str) -> bytes: ...
+
     def borrar(self, codigo: str) -> bool: ...
 
 
@@ -83,6 +85,9 @@ class AlmacenVisorNinguno:
         raise VisorNoDisponible("El visor no está configurado en este entorno (VISOR_ORIGEN=ninguno).")
 
     def renovar(self, codigo: str) -> ResultadoVisor:
+        raise VisorNoDisponible("El visor no está configurado en este entorno (VISOR_ORIGEN=ninguno).")
+
+    def leer(self, codigo: str) -> bytes:
         raise VisorNoDisponible("El visor no está configurado en este entorno (VISOR_ORIGEN=ninguno).")
 
     def borrar(self, codigo: str) -> bool:
@@ -129,6 +134,16 @@ class AlmacenVisorBlob:
             raise VisorNoEncontrado(f"No hay visor publicado para {codigo!r}.")
         tamano = int(getattr(bc.get_blob_properties(), "size", 0) or 0)
         return self._firmar(blob, tamano)
+
+    def leer(self, codigo: str) -> bytes:
+        """Los bytes del original, para servirlos directamente desde la ruta anónima del visor."""
+        from azure.core.exceptions import ResourceNotFoundError
+
+        bc = self._cliente.get_blob_client(self._contenedor, nombre_blob(codigo))
+        try:
+            return bc.download_blob().readall()
+        except ResourceNotFoundError:
+            raise VisorNoEncontrado(f"No hay visor publicado para {codigo!r}.") from None
 
     def borrar(self, codigo: str) -> bool:
         from azure.core.exceptions import ResourceNotFoundError

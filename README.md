@@ -225,8 +225,9 @@ POST /api/v1/visor
 - **`url_visor` es una URL corta y estable**: `…/api/v1/visor/{codigo}/abrir/{token}` (≈ 110 caracteres,
   cabe en una columna de texto de SharePoint; una SAS mide ~450 y el conector la rechaza con «maximum
   length 255»). Esa ruta es **anónima**: valida el token (HMAC-SHA256 de `VISOR_SECRETO` y el código,
-  32 hex) y responde `302` hacia una SAS recién firmada. Así el control PDF de Power Apps la abre sin
-  clave y el enlace no caduca mientras exista el blob. `url_sas` trae la SAS de esa llamada, para diagnóstico.
+  32 hex) y **sirve el PDF directamente** con cabeceras CORS (el control PDF de Power Apps lo descarga
+  desde el navegador; una redirección a Blob exigiría CORS en dos saltos y fallaba con «couldn't open pdf»).
+  Así se abre sin clave y el enlace no caduca mientras exista el blob. La Function tiene CORS `*` en Bicep. `url_sas` trae la SAS de esa llamada, para diagnóstico.
   Sin `VISOR_SECRETO`, `url_visor` es la SAS directa (desarrollo local).
 - `GET /api/v1/visor/{codigo}` devuelve una `url_visor`/`url_sas` nuevas sobre el blob ya publicado (404
   `visor_no_encontrado` si no existe). `DELETE` lo borra y responde `{"borrado": true|false}`; nunca

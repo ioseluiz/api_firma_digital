@@ -5,7 +5,7 @@ Rutas:
   POST   /api/v1/visor            guarda el original en el contenedor del visor; devuelve URL SAS temporal
   GET    /api/v1/visor/{codigo}   URL SAS nueva para un original ya publicado
   DELETE /api/v1/visor/{codigo}   borra el original del visor (idempotente)
-  GET    /api/v1/visor/{codigo}/abrir/{token}   ANÓNIMA: redirige (302) a un SAS fresco; es la URL que guarda SharePoint
+  GET    /api/v1/visor/{codigo}/abrir/{token}   ANÓNIMA: sirve el PDF (con CORS); es la URL que guarda SharePoint
   GET    /api/v1/salud            versión, origen de imágenes, visor y si la imagen por defecto es accesible
 
 Seguridad: en producción va detrás de Easy Auth (Entra ID, rol Firma.Ejecutar). Mientras tanto,
@@ -253,10 +253,20 @@ def visor_codigo(req: func.HttpRequest) -> func.HttpResponse:
         return _error(ErrorFirma("Error interno en el visor; busque el correlation_id en Application Insights."), correlation_id)
 
 
-@app.route(route="v1/visor/{codigo}/abrir/{token}", methods=["GET", "HEAD"], auth_level=func.AuthLevel.ANONYMOUS)
+def _cors() -> dict:
+    return {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Max-Age": "3600",
+    }
+
+
+@app.route(route="v1/visor/{codigo}/abrir/{token}", methods=["GET", "HEAD", "OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
 def visor_abrir(req: func.HttpRequest) -> func.HttpResponse:
     """Ruta anónima: el control PDF de Power Apps (y cualquier navegador) la abre sin clave. El token HMAC por
-    código impide adivinar URLs; cada apertura recibe un SAS recién firmado, así que no caduca a los 7 días."""
+    código impide adivinar URLs. Sirve los bytes directamente (no redirige): el control los descarga desde el
+    navegador y una redirección hacia Blob exige CORS en dos saltos; aquí basta con la cabecera de esta respuesta."""
     correlation_id = req.headers.get("X-Correlation-Id") or str(uuid.uuid4())
     codigo = "?"
     try:
@@ -265,11 +275,20 @@ def visor_abrir(req: func.HttpRequest) -> func.HttpResponse:
         if not token_valido(codigo, req.route_params.get("token", ""), secreto):
             log.warning("visor abrir rechazado codigo=%s corr=%s", codigo, correlation_id)
             return func.HttpResponse("No encontrado.", status_code=404, mimetype="text/plain")
-        r = obtener_visor().renovar(codigo)
-        log.info("visor abrir codigo=%s corr=%s", codigo, correlation_id)
+        if req.method.upper() == "OPTIONS":
+            return func.HttpResponse("", status_code=204, headers=_cors())
+        pdf = obtener_visor().leer(codigo)
+        log.info("visor abrir codigo=%s bytes=%d corr=%s", codigo, len(pdf), correlation_id)
+        if req.method.upper() == "HEAD":
+            pdf = b""
         return func.HttpResponse(
-            "", status_code=302,
-            headers={"Location": r.url, "Cache-Control": "no-store", "X-Correlation-Id": correlation_id},
+            pdf, status_code=200, mimetype="application/pdf",
+            headers={
+                **_cors(),
+                "Content-Disposition": f'inline; filename="{codigo}.pdf"',
+                "Cache-Control": "private, max-age=300",
+                "X-Correlation-Id": correlation_id,
+            },
         )
     except ErrorFirma as e:
         log.warning("visor abrir error codigo=%s error=%s corr=%s", codigo, e.codigo, correlation_id)
