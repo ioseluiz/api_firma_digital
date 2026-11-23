@@ -41,7 +41,7 @@ Cuerpo. Los valores entre `@{...}` se ponen como **expresión** (pestaña *fx*),
 {
   "solicitud_id": 1,
   "codigo": "PRUEBA-PA-001",
-  "pdf_base64": "@{base64(triggerBody()?['Documento']?['contentBytes'])}",
+  "pdf_base64": "@{base64(triggerBody()?['file']?['contentBytes'])}",
   "firmante": { "imagen_id": "gerente.png" },
   "fecha_firma": "@{outputs('Fecha_firma')}",
   "posicion": {
@@ -56,10 +56,16 @@ Cuerpo. Los valores entre `@{...}` se ponen como **expresión** (pestaña *fx*),
 
 Notas:
 
-- El `base64(...)` es obligatorio. Al interpolar `contentBytes` dentro de una cadena, Power
-  Automate convierte el archivo a texto y lo **decodifica**: el API recibe `%PDF-1.7 ...` con los
-  bytes rotos y responde 400. Si el PDF viniera de «Obtener contenido del archivo» (OneDrive o
-  SharePoint), la expresión es la misma idea: `base64(body('Obtener_contenido_del_archivo'))`.
+- La clave es `file` aunque la entrada se llame `Documento`: el desencadenador manual nombra las
+  entradas por tipo (`file`, `file_1`, `text`, …). Para comprobarlo, en el historial de una
+  ejecución abrir el desencadenador → salidas.
+- El `base64(...)` es obligatorio. `contentBytes` es un contenido binario; interpolarlo dentro de
+  una cadena sin `base64()` lo **decodifica** y el API recibe `%PDF-1.7 ...` con los bytes rotos
+  (400 «trae el PDF decodificado»). Con `base64()`, Power Automate manda a veces base64 doble o el
+  base64 del objeto `{"$content-type", "$content"}`; el API (desde 0.2.0) detecta ambos y los
+  decodifica dos veces.
+- Si el PDF viniera de «Obtener contenido del archivo» (OneDrive o SharePoint), es la misma idea:
+  `base64(body('Obtener_contenido_del_archivo'))`.
 - Si no creaste la entrada `Ancla`, borra la línea de `ancla_texto` o deja `""`.
 - En **Configuración** de la acción HTTP (menú `…`): tiempo de espera `PT2M`; directiva de
   reintentos *exponencial*, 4 intentos, intervalo `PT20S`. En la prueba se puede dejar por defecto.
@@ -121,7 +127,8 @@ la acción HTTP debe dar **200** y en OneDrive aparece `<nombre>_firmado.pdf`.
 | Síntoma | Causa probable |
 |---|---|
 | HTTP 401 | Falta o está mal la cabecera `x-functions-key`. |
-| HTTP 400 `peticion_invalida` y el mensaje dice «trae el PDF decodificado» | Falta el `base64(...)` alrededor de `contentBytes`: en la entrada de la acción HTTP se ve `"pdf_base64": "%PDF-1.7..."`. |
+| HTTP 400 `peticion_invalida` y el mensaje dice «trae el PDF decodificado» | Se interpoló un contenido binario (p. ej. `body('Obtener_contenido_del_archivo')`) sin `base64(...)`: en la entrada de la acción HTTP se ve `"pdf_base64": "%PDF-1.7..."`. |
+| HTTP 400 `pdf_invalido` «no empieza por %PDF» | Con el API 0.1.0 (ver `/api/v1/salud`): `base64()` sobre `contentBytes` llegó doble codificado o como base64 del objeto binario; desplegar 0.2.0, que lo tolera. Con 0.2.0: el archivo adjunto no es PDF. |
 | HTTP 400 `peticion_invalida` y el mensaje nombra `pdf_base64` | La expresión de `contentBytes` quedó como texto, no como expresión, o el archivo no se adjuntó. |
 | HTTP 400 `pdf_invalido` | El archivo no es PDF o está protegido con contraseña. |
 | HTTP 404 `imagen_no_encontrada` | `imagen_id` distinto de `gerente.png` (la única subida en dev). |

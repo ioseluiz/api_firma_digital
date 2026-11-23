@@ -98,6 +98,12 @@ directamente). `scripts/firmar_local.py` necesita el host corriendo o la URL de 
 Cabeceras: `Content-Type: application/json`, `X-Correlation-Id` (opcional; se devuelve igual y se
 registra; el flujo manda el nombre de su ejecución). Autenticación: ver más abajo.
 
+`pdf_base64` acepta, además de la cadena base64 limpia, lo que suelen mandar los conectores de
+Power Automate: el objeto binario `{"$content-type": ..., "$content": "<base64>"}`, un data URI,
+base64 con saltos de línea, base64 doble y base64 del propio objeto binario (las dos últimas son lo
+que a veces produce `base64(contentBytes)` en el desencadenador manual). Lo único que rechaza con 400 es el PDF decodificado (`%PDF-...` como texto),
+porque esos bytes ya llegan rotos.
+
 Petición mínima (solo la imagen, en la última página, posición por defecto):
 
 ```json

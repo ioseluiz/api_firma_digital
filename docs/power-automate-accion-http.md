@@ -23,7 +23,10 @@ archivo `Original.pdf` de la carpeta de la solicitud. Para el cuerpo de la petic
 `base64(body('Obtener_contenido_del_archivo'))`, que es la forma documentada de convertir el
 contenido binario de esa acción a base64. (Su salida cruda es
 `{"$content-type": "application/pdf", "$content": "<base64>"}`, así que `?['$content']` también
-funciona, pero `base64()` no depende de ese formato interno.)
+funciona, pero `base64()` no depende de ese formato interno.) El API (desde 0.2.0) tolera
+que `base64()` produzca base64 doble o el base64 de ese objeto, cosa que ocurre con el
+`contentBytes` del desencadenador manual; lo que sí rompe el flujo es interpolar el binario sin
+`base64()`, porque llega `%PDF` decodificado con los bytes rotos.
 
 Antes de integrar, conviene probar el API con un flujo aislado: `prueba-power-automate.md`.
 

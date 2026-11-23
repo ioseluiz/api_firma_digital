@@ -66,6 +66,43 @@ def _error(e: ErrorFirma, correlation_id: str) -> func.HttpResponse:
     return _json(cuerpo, e.http, correlation_id)
 
 
+# "%PDF-" codificado en base64. Si tras decodificar aparece esto, el flujo codificó dos veces.
+_PDF_EN_BASE64 = b"JVBERi0"
+
+
+def _b64(texto, mensaje: str) -> bytes:
+    try:
+        return base64.b64decode(b"".join(texto.split()) if isinstance(texto, bytes) else texto, validate=True)
+    except (binascii.Error, ValueError) as e:
+        raise PdfInvalido(mensaje) from e
+
+
+def _decodificar_pdf(b64: str) -> bytes:
+    """Decodifica `pdf_base64` tolerando lo que produce `base64()` en Power Automate sobre un
+    `contentBytes` que ya era base64 (desencadenador manual):
+
+    - base64 doble: el primer decodificado es texto que empieza por `JVBERi0` (`%PDF-`);
+    - base64 del objeto binario: el primer decodificado es el JSON
+      `{"$content-type": ..., "$content": "<base64>"}`.
+
+    En ambos casos se decodifica otra vez. Un PDF real nunca empieza por `{` ni por `J`.
+    """
+    pdf = _b64(b64, "pdf_base64 no es base64 válido.")
+    cuerpo = pdf.lstrip()
+    if cuerpo.startswith(b"{"):
+        try:
+            objeto = json.loads(cuerpo.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError) as e:
+            raise PdfInvalido("pdf_base64 decodifica a texto que empieza por '{' pero no es JSON.") from e
+        interno = objeto.get("$content") if isinstance(objeto, dict) else None
+        if not isinstance(interno, str):
+            raise PdfInvalido("pdf_base64 decodifica a un objeto JSON sin '$content'.")
+        pdf = _b64("".join(interno.split()), "pdf_base64 trae un objeto cuyo '$content' no es base64 válido.")
+    elif cuerpo.startswith(_PDF_EN_BASE64):
+        pdf = _b64(cuerpo, "pdf_base64 parece base64 doble, pero el contenido interno no es base64 válido.")
+    return pdf
+
+
 def _resumen_validacion(err: ValidationError) -> str:
     partes = []
     for x in err.errors()[:6]:
@@ -123,10 +160,7 @@ def firmar(req: func.HttpRequest) -> func.HttpResponse:
         # Tamaño antes de decodificar: base64 ocupa 4/3 del binario.
         if len(peticion.pdf_base64) * 3 // 4 > maximo:
             raise PdfDemasiadoGrande(f"El PDF supera el máximo de {maximo // (1024 * 1024)} MB.")
-        try:
-            pdf = base64.b64decode(peticion.pdf_base64, validate=True)
-        except (binascii.Error, ValueError) as e:
-            raise PdfInvalido("pdf_base64 no es base64 válido.") from e
+        pdf = _decodificar_pdf(peticion.pdf_base64)
         if len(pdf) > maximo:
             raise PdfDemasiadoGrande(f"El PDF supera el máximo de {maximo // (1024 * 1024)} MB.")
 

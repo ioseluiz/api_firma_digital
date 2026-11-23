@@ -61,6 +61,9 @@ class FirmaRequest(BaseModel):
           (lo que produce interpolar `contentBytes` o el cuerpo de «Obtener contenido del archivo»);
         - un data URI `data:application/pdf;base64,<base64>`;
         - base64 con saltos de línea o espacios.
+
+        El base64 doble (base64 de base64, cuando el flujo aplica `base64()` a un `contentBytes`
+        que ya era base64) se resuelve al decodificar, en `function_app._decodificar_pdf`.
         """
         if isinstance(v, dict):
             contenido = v.get("$content")

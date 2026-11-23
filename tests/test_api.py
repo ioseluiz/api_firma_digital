@@ -116,6 +116,43 @@ def test_firmar_acepta_data_uri_y_saltos_de_linea(app_local, pdf_1_pagina):
         assert resp.status_code == 200, resp.get_body()
 
 
+def test_firmar_acepta_base64_doble(app_local, pdf_1_pagina):
+    """`base64(triggerBody()?['file']?['contentBytes'])` en el desencadenador manual codifica dos veces."""
+    b64 = base64.b64encode(pdf_1_pagina).decode("ascii")
+    doble = base64.b64encode(b64.encode("ascii")).decode("ascii")
+    con_saltos = base64.b64encode("\r\n".join(b64[i:i + 76] for i in range(0, len(b64), 76)).encode("ascii")).decode("ascii")
+    for valor in (doble, con_saltos):
+        resp = app_local.firmar.build().get_user_function()(peticion(cuerpo_valido(pdf_1_pagina, pdf_base64=valor)))
+        assert resp.status_code == 200, resp.get_body()
+        datos = json.loads(resp.get_body())
+        assert base64.b64decode(datos["pdf_firmado_base64"]).startswith(b"%PDF")
+
+
+def test_firmar_acepta_base64_del_objeto_binario(app_local, pdf_1_pagina):
+    """`base64(contentBytes)` sobre el objeto binario puede codificar su JSON `{"$content-type", "$content"}`."""
+    b64 = base64.b64encode(pdf_1_pagina).decode("ascii")
+    objeto = json.dumps({"$content-type": "application/octet-stream", "$content": b64})
+    valor = base64.b64encode(objeto.encode("utf-8")).decode("ascii")
+    resp = app_local.firmar.build().get_user_function()(peticion(cuerpo_valido(pdf_1_pagina, pdf_base64=valor)))
+    assert resp.status_code == 200, resp.get_body()
+    assert base64.b64decode(json.loads(resp.get_body())["pdf_firmado_base64"]).startswith(b"%PDF")
+
+
+def test_firmar_base64_de_objeto_sin_content_es_pdf_invalido(app_local, pdf_1_pagina):
+    valor = base64.b64encode(b'{"nombre": "x.pdf"}').decode("ascii")
+    resp = app_local.firmar.build().get_user_function()(peticion(cuerpo_valido(pdf_1_pagina, pdf_base64=valor)))
+    assert resp.status_code == 400
+    assert json.loads(resp.get_body())["error"] == "pdf_invalido"
+
+
+def test_firmar_base64_doble_con_interior_roto_es_pdf_invalido(app_local, pdf_1_pagina):
+    interior = "JVBERi0xLjcN%%%roto%%%"
+    valor = base64.b64encode(interior.encode("ascii")).decode("ascii")
+    resp = app_local.firmar.build().get_user_function()(peticion(cuerpo_valido(pdf_1_pagina, pdf_base64=valor)))
+    assert resp.status_code == 400
+    assert json.loads(resp.get_body())["error"] == "pdf_invalido"
+
+
 def test_firmar_pdf_decodificado_explica_el_error(app_local, pdf_1_pagina):
     """Interpolar `contentBytes` en una cadena de Power Automate manda el PDF decodificado (empieza por %PDF)."""
     crudo = pdf_1_pagina.decode("utf-8", errors="replace")
