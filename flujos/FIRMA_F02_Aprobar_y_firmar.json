@@ -5,7 +5,7 @@
       "shared_sharepointonline": {
         "runtimeSource": "embedded",
         "connection": {
-          "connectionReferenceLogicalName": "ini_firma_sharepoint"
+          "connectionReferenceLogicalName": "ini_firma_sp"
         },
         "api": {
           "name": "shared_sharepointonline"
@@ -14,7 +14,7 @@
       "shared_office365": {
         "runtimeSource": "embedded",
         "connection": {
-          "connectionReferenceLogicalName": "ini_firma_outlook"
+          "connectionReferenceLogicalName": "ini_firma_o365"
         },
         "api": {
           "name": "shared_office365"

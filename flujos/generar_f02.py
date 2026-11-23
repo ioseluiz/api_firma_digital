@@ -399,9 +399,9 @@ def construir() -> dict:
         "nombre": "FIRMA F02 · Aprobar y firmar",
         "properties": {
             "connectionReferences": {
-                "shared_sharepointonline": {"runtimeSource": "embedded", "connection": {"connectionReferenceLogicalName": "ini_firma_sharepoint"},
+                "shared_sharepointonline": {"runtimeSource": "embedded", "connection": {"connectionReferenceLogicalName": "ini_firma_sp"},
                                             "api": {"name": "shared_sharepointonline"}},
-                "shared_office365": {"runtimeSource": "embedded", "connection": {"connectionReferenceLogicalName": "ini_firma_outlook"},
+                "shared_office365": {"runtimeSource": "embedded", "connection": {"connectionReferenceLogicalName": "ini_firma_o365"},
                                      "api": {"name": "shared_office365"}},
             },
             "definition": definicion,

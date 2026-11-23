@@ -57,14 +57,19 @@ def definicion_de(archivo: Path) -> dict:
     return d
 
 
-def buscar(dv: Dataverse, nombre: str) -> dict:
+def buscar(dv: Dataverse, nombre: str, propio: bool = True) -> dict:
+    """Flujo de nube por nombre. Si hay varios con el mismo nombre (el de cpitti y el de jlmunoz), elige el
+    propio (propio=True) o el ajeno (propio=False)."""
     r = dv.get("workflows", params={
         "$select": "workflowid,name,statecode,statuscode,clientdata,_ownerid_value,modifiedon",
         "$filter": f"category eq 5 and name eq '{nombre.replace(chr(39), chr(39) * 2)}'",
     })
     filas = r.get("value", [])
+    if len(filas) > 1:
+        yo = dv.quien_soy()["UserId"]
+        filas = [f for f in filas if (f["_ownerid_value"] == yo) == propio]
     if len(filas) != 1:
-        raise SystemExit(f"Se esperaba exactamente un flujo llamado {nombre!r}; hay {len(filas)}.")
+        raise SystemExit(f"Se esperaba exactamente un flujo llamado {nombre!r} ({'propio' if propio else 'ajeno'}); hay {len(filas)}.")
     return filas[0]
 
 
@@ -87,16 +92,20 @@ def comprobar_variables(dv: Dataverse, definicion: dict) -> list[str]:
     return problemas
 
 
-def comprobar_referencias(vivo: dict, definicion: dict) -> list[str]:
-    try:
-        vivas = {v.get("connection", {}).get("connectionReferenceLogicalName")
-                 for v in json.loads(vivo["clientdata"])["properties"].get("connectionReferences", {}).values()}
-    except Exception:
-        vivas = set()
-    nuevas = {v.get("connection", {}).get("connectionReferenceLogicalName")
-              for v in definicion["properties"].get("connectionReferences", {}).values()}
-    faltan = nuevas - vivas
-    return [f"referencia de conexión {x!r} no está en el flujo vivo: créala/elígela en el portal antes" for x in sorted(faltan)] if faltan else []
+def comprobar_referencias(dv: Dataverse, definicion: dict) -> list[str]:
+    """Cada referencia de conexión que nombra el JSON debe existir en Dataverse y ser legible por quien sube
+    (si no la puede leer, tampoco la podrá usar el flujo bajo su propiedad)."""
+    problemas = []
+    nombres = {v.get("connection", {}).get("connectionReferenceLogicalName")
+               for v in definicion["properties"].get("connectionReferences", {}).values()}
+    for n in sorted(x for x in nombres if x):
+        r = dv.get("connectionreferences", params={"$select": "connectionid", "$filter": f"connectionreferencelogicalname eq '{n}'"})
+        filas = r.get("value", [])
+        if not filas:
+            problemas.append(f"referencia de conexión {n!r} no existe o no es legible por este usuario (flujos/referencias_conexion.py)")
+        elif not filas[0].get("connectionid"):
+            problemas.append(f"referencia de conexión {n!r} no tiene conexión asignada")
+    return problemas
 
 
 def validar(archivo: Path) -> None:
@@ -120,10 +129,13 @@ def crear(dv: Dataverse, archivo: Path, solucion: str, si: bool) -> None:
     """Crea el flujo directamente por Web API (sin esqueleto en el diseñador) y lo mete en la solución."""
     nombre = nombre_de(archivo)
     definicion = definicion_de(archivo)
-    existentes = dv.get("workflows", params={"$select": "workflowid", "$filter": f"category eq 5 and name eq '{nombre}'"}).get("value", [])
+    yo = dv.quien_soy()["UserId"]
+    existentes = dv.get("workflows", params={"$select": "workflowid,_ownerid_value", "$filter": f"category eq 5 and name eq '{nombre}'"}).get("value", [])
+    if any(e["_ownerid_value"] == yo for e in existentes):
+        raise SystemExit(f"Ya existe un flujo propio llamado {nombre!r}: usa --flujo para actualizarlo.")
     if existentes:
-        raise SystemExit(f"Ya existe un flujo llamado {nombre!r}: usa --flujo para actualizarlo.")
-    problemas = comprobar_variables(dv, definicion)
+        print(f"  AVISO: ya hay {len(existentes)} flujo(s) con ese nombre de otro propietario; el nuevo será el propio.")
+    problemas = comprobar_referencias(dv, definicion) + comprobar_variables(dv, definicion)
     for p in problemas:
         print("  AVISO:", p)
     if not si:
@@ -166,7 +178,7 @@ def subir(dv: Dataverse, archivo: Path, si: bool, activar: bool, sin_validar: bo
         if len(diff) > 400:
             print(f"  … ({len(diff) - 400} líneas más)")
 
-    problemas = comprobar_referencias(vivo, definicion) + comprobar_variables(dv, definicion)
+    problemas = comprobar_referencias(dv, definicion) + comprobar_variables(dv, definicion)
     for p in problemas:
         print("  PROBLEMA:", p)
     if problemas:
@@ -192,8 +204,8 @@ def subir(dv: Dataverse, archivo: Path, si: bool, activar: bool, sin_validar: bo
         print("Queda apagado (estaba apagado): enciéndelo con --activar o con --encender.")
 
 
-def encender(dv: Dataverse, nombre: str, apagar: bool = False) -> None:
-    vivo = buscar(dv, nombre)
+def encender(dv: Dataverse, nombre: str, apagar: bool = False, propio: bool = True) -> None:
+    vivo = buscar(dv, nombre, propio)
     wid = vivo["workflowid"]
     if apagar:
         dv.patch(f"workflows({wid})", {"statecode": 0, "statuscode": 1})
@@ -211,6 +223,7 @@ def main() -> None:
     ap.add_argument("--exportar", action="store_true", help="baja el clientdata vivo de todos los FIRMA F0%")
     ap.add_argument("--encender", metavar="NOMBRE", help="enciende el flujo con ese nombre (p. ej. 'FIRMA F01 · Registrar envío')")
     ap.add_argument("--apagar", metavar="NOMBRE", help="apaga el flujo con ese nombre")
+    ap.add_argument("--ajeno", action="store_true", help="con --apagar/--encender: actúa sobre el flujo de OTRO propietario con ese nombre")
     ap.add_argument("--si", action="store_true", help="aplica los cambios (sin esto solo muestra)")
     ap.add_argument("--activar", action="store_true")
     ap.add_argument("--sin-validar", action="store_true")
@@ -219,9 +232,9 @@ def main() -> None:
     if a.exportar:
         exportar(dv)
     elif a.encender:
-        encender(dv, a.encender)
+        encender(dv, a.encender, propio=not a.ajeno)
     elif a.apagar:
-        encender(dv, a.apagar, apagar=True)
+        encender(dv, a.apagar, apagar=True, propio=not a.ajeno)
     elif a.crear:
         crear(dv, Path(a.crear), a.solucion, a.si)
     elif a.flujo:
