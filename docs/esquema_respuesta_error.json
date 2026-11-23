@@ -1,0 +1,22 @@
+{
+  "properties": {
+    "ok": {
+      "default": false,
+      "type": "boolean"
+    },
+    "error": {
+      "type": "string"
+    },
+    "mensaje": {
+      "type": "string"
+    },
+    "correlation_id": {
+      "default": null,
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "type": "object"
+}

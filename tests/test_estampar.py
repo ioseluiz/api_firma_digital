@@ -15,6 +15,11 @@ def params(**kw) -> ParametrosEstampado:
     return ParametrosEstampado(**base)
 
 
+def con_sello(**kw) -> ParametrosEstampado:
+    """Las pruebas del sello lo piden explícitamente: por defecto el servicio no escribe texto."""
+    return params(sello_texto=True, **kw)
+
+
 def abrir(b: bytes) -> pymupdf.Document:
     return pymupdf.open(stream=b, filetype="pdf")
 
@@ -30,8 +35,18 @@ def test_firma_en_ultima_pagina_por_defecto(pdf_50_paginas, imagen_firma, fecha)
     assert all(len(doc[i].get_images()) == 0 for i in range(49)), "ninguna otra página se toca"
 
 
+def test_por_defecto_solo_la_imagen_plana_sin_texto_ni_anotaciones(pdf_1_pagina, imagen_firma, fecha):
+    texto_antes = abrir(pdf_1_pagina)[0].get_text()
+    r = estampar(pdf_1_pagina, imagen_firma, ParametrosEstampado(codigo=CODIGO, fecha_firma=fecha))
+    page = abrir(r.pdf)[0]
+    assert page.get_text() == texto_antes, "no se añade ningún texto"
+    assert len(page.get_images()) == 1, "la imagen está en el contenido de la página (XObject)"
+    assert len(list(page.annots())) == 0, "no es una anotación: no se puede quitar desde un visor"
+    assert len(list(page.widgets())) == 0, "tampoco es un campo de formulario"
+
+
 def test_sello_contiene_nombre_fecha_codigo_y_verificacion(pdf_1_pagina, imagen_firma, fecha):
-    r = estampar(pdf_1_pagina, imagen_firma, params(fecha_firma=fecha))
+    r = estampar(pdf_1_pagina, imagen_firma, con_sello(fecha_firma=fecha))
     page = abrir(r.pdf)[0]
     texto = page.get_text()
     assert "Ing. Juan Pérez" in texto
@@ -80,23 +95,71 @@ def test_no_pdf_se_rechaza(imagen_firma, fecha):
         estampar(b"%PDF-1.7 pero truncado y roto", imagen_firma, params(fecha_firma=fecha))
 
 
-def test_ancla_coloca_la_firma_sobre_el_texto(pdf_con_ancla, imagen_firma, fecha):
+def test_ancla_centra_la_firma_sobre_el_texto(pdf_con_ancla, imagen_firma, fecha):
     r = estampar(pdf_con_ancla, imagen_firma, params(fecha_firma=fecha, ancla_texto="Firma del Gerente:"))
     assert r.ancla_encontrada is True
     assert r.pagina_firmada == 3
     page = abrir(r.pdf)[2]
     ancla = page.search_for("Firma del Gerente:")[0]
     x0, y0, x1, y1 = r.rect_firma
-    assert x0 == pytest.approx(ancla.x0, abs=0.5), "alineada a la izquierda del ancla"
+    assert (x0 + x1) / 2 == pytest.approx((ancla.x0 + ancla.x1) / 2, abs=0.5), "centrada sobre el ancla"
     assert y1 == pytest.approx(ancla.y0 + 2, abs=0.5), "apoyada sobre el ancla"
 
 
+def test_ancla_alineada_a_la_izquierda(pdf_con_ancla, imagen_firma, fecha):
+    r = estampar(pdf_con_ancla, imagen_firma,
+                 params(fecha_firma=fecha, ancla_texto="Firma del Gerente:", ancla_alineacion="izquierda"))
+    ancla = abrir(r.pdf)[2].search_for("Firma del Gerente:")[0]
+    assert r.rect_firma[0] == pytest.approx(ancla.x0, abs=0.5)
+
+
 def test_con_ancla_el_sello_no_pisa_el_texto_del_ancla(pdf_con_ancla, imagen_firma, fecha):
-    r = estampar(pdf_con_ancla, imagen_firma, params(fecha_firma=fecha, ancla_texto="Firma del Gerente:"))
+    r = estampar(pdf_con_ancla, imagen_firma, con_sello(fecha_firma=fecha, ancla_texto="Firma del Gerente:"))
     page = abrir(r.pdf)[2]
     ancla = page.search_for("Firma del Gerente:")[0]
     sello = page.search_for(CODIGO)[0]
     assert sello.y0 >= ancla.y1 - 0.5, "el sello empieza debajo del texto del ancla"
+
+
+def _memo_con_bloque_de_firma() -> bytes:
+    """Página con el bloque típico: línea, nombre en negrita y cargo debajo."""
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), "Memorando de prueba.", fontsize=11, fontname="helv")
+    page.insert_text((72, 680), "Atentamente,", fontsize=10, fontname="helv")
+    page.insert_text((72, 740), "______________________________", fontsize=10, fontname="helv")
+    page.insert_text((72, 755), "Ing. Juan Pérez", fontsize=10, fontname="hebo")
+    page.insert_text((72, 768), "Gerente, División de Ingeniería", fontsize=9, fontname="helv")
+    return doc.tobytes()
+
+
+def test_el_sello_no_pisa_el_cargo_debajo_del_nombre(imagen_firma, fecha):
+    pdf = _memo_con_bloque_de_firma()
+    palabras_antes = [pymupdf.Rect(w[:4]) for w in abrir(pdf)[0].get_text("words")]
+    r = estampar(pdf, imagen_firma, con_sello(fecha_firma=fecha, ancla_texto="Ing. Juan Pérez", ancho_mm=45))
+    page = abrir(r.pdf)[0]
+    sello = page.search_for(CODIGO)[0]
+    cargo = page.search_for("Gerente, División de Ingeniería")[0]
+    assert sello.y0 >= cargo.y1 - 0.5, "el sello va debajo del cargo, no encima"
+    # Y en general: ninguna palabra que ya existía se solapa con la línea del sello.
+    assert not [w for w in palabras_antes if w.intersects(sello)]
+
+
+def test_sello_encima_si_no_hay_sitio_abajo(imagen_firma, fecha):
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), "Documento.", fontsize=11, fontname="helv")
+    r = estampar(doc.tobytes(), imagen_firma, con_sello(fecha_firma=fecha, x_mm=30, y_mm=4, ancho_mm=50))
+    page = abrir(r.pdf)[0]
+    sello = page.search_for(CODIGO)[0]
+    assert sello.y1 <= r.rect_firma[1] + 0.5, "sin espacio abajo, el sello va encima de la firma"
+
+
+def test_sello_sin_nombre_ni_cargo(pdf_1_pagina, imagen_firma, fecha):
+    r = estampar(pdf_1_pagina, imagen_firma, ParametrosEstampado(codigo=CODIGO, fecha_firma=fecha, sello_texto=True))
+    texto = abrir(r.pdf)[0].get_text()
+    assert "Firmado electrónicamente · 18/11/2026 14:05" in texto
+    assert " por " not in texto
 
 
 def test_ancla_ausente_usa_posicion_fija_por_defecto(pdf_1_pagina, imagen_firma, fecha):
@@ -126,15 +189,15 @@ def test_hash_del_archivo_final_y_codigo_de_verificacion(pdf_1_pagina, imagen_fi
     assert codigo_verificacion(pdf_1_pagina, "OTRO", fecha) != r.codigo_verificacion
 
 
-def test_sin_sello(pdf_1_pagina, imagen_firma, fecha):
-    r = estampar(pdf_1_pagina, imagen_firma, params(fecha_firma=fecha, sello_texto=False))
+def test_sin_sello_aunque_haya_nombre(pdf_1_pagina, imagen_firma, fecha):
+    r = estampar(pdf_1_pagina, imagen_firma, params(fecha_firma=fecha))
     page = abrir(r.pdf)[0]
-    assert CODIGO not in page.get_text()
+    assert CODIGO not in page.get_text() and "Juan" not in page.get_text()
     assert len(page.get_images()) == 1
 
 
 def test_sello_sin_codigo_de_verificacion(pdf_1_pagina, imagen_firma, fecha):
-    r = estampar(pdf_1_pagina, imagen_firma, params(fecha_firma=fecha, sello_codigo=False))
+    r = estampar(pdf_1_pagina, imagen_firma, con_sello(fecha_firma=fecha, sello_codigo=False))
     texto = abrir(r.pdf)[0].get_text()
     assert "Verif." not in texto
     assert CODIGO in texto

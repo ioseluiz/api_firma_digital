@@ -3,8 +3,9 @@
 Sirve para probar el servicio sin Power Automate y para que quien arme el flujo vea el JSON exacto.
 
 Ejemplos:
-  python scripts/firmar_local.py --pdf memo.pdf
+  python scripts/firmar_local.py --pdf memo.pdf                       # solo la imagen, última página
   python scripts/firmar_local.py --pdf memo.pdf --ancla "Firma del Gerente:" --pagina 0
+  python scripts/firmar_local.py --pdf memo.pdf --con-sello --nombre "Ing. Juan Pérez" --cargo "Gerente"
   python scripts/firmar_local.py --pdf memo.pdf --url https://func-ini-firma-dev.azurewebsites.net/api/v1/firmar --clave <function key>
   python scripts/firmar_local.py --pdf memo.pdf --solo-json > peticion.json
 """
@@ -29,9 +30,10 @@ def construir_peticion(a: argparse.Namespace) -> dict:
         "fecha_firma": a.fecha or datetime.now().replace(microsecond=0).isoformat(),
         "posicion": {
             "pagina": a.pagina, "x_mm": a.x_mm, "y_mm": a.y_mm, "ancho_mm": a.ancho_mm,
-            "ancla_texto": a.ancla, "si_no_hay_ancla": "error" if a.ancla_obligatoria else "posicion_fija",
+            "ancla_texto": a.ancla, "ancla_alineacion": a.ancla_alineacion,
+            "si_no_hay_ancla": "error" if a.ancla_obligatoria else "posicion_fija",
         },
-        "sello": {"texto": not a.sin_sello, "codigo_verificacion": not a.sin_verificacion},
+        "sello": {"texto": a.con_sello, "codigo_verificacion": not a.sin_verificacion},
     }
 
 
@@ -42,13 +44,14 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--pdf", required=True)
     p.add_argument("--salida", help="ruta del PDF firmado (por defecto <pdf>_firmado.pdf)")
-    p.add_argument("--url", default="http://localhost:7071/api/v1/firmar")
+    # 127.0.0.1 y no "localhost": en Windows, localhost prueba primero IPv6 y añade ~2 s por petición.
+    p.add_argument("--url", default="http://127.0.0.1:7071/api/v1/firmar")
     p.add_argument("--clave", default="", help="clave de función (x-functions-key) si el API la exige")
     p.add_argument("--token", default="", help="token Bearer de Entra ID si el API está detrás de Easy Auth")
     p.add_argument("--solicitud-id", type=int, default=1)
     p.add_argument("--codigo", default="FIRMA-2026-000001")
-    p.add_argument("--nombre", default="Ing. Juan Pérez")
-    p.add_argument("--cargo", default="Gerente de la División")
+    p.add_argument("--nombre", default="", help="solo se imprime si se pide --con-sello")
+    p.add_argument("--cargo", default="", help="solo se imprime si se pide --con-sello")
     p.add_argument("--email", default="")
     p.add_argument("--imagen-id", default="gerente.png")
     p.add_argument("--fecha", default="", help="ISO 8601 local; por defecto ahora")
@@ -56,10 +59,12 @@ def main() -> int:
     p.add_argument("--x-mm", type=float, default=120)
     p.add_argument("--y-mm", type=float, default=40)
     p.add_argument("--ancho-mm", type=float, default=50)
-    p.add_argument("--ancla", default="")
+    p.add_argument("--ancla", default="", help="texto sobre el que apoyar la firma, p. ej. 'Gerente INIG'")
+    p.add_argument("--ancla-alineacion", choices=["centro", "izquierda"], default="centro",
+                   help="centro: centrada sobre el rótulo; izquierda: alineada a su borde izquierdo")
     p.add_argument("--ancla-obligatoria", action="store_true")
-    p.add_argument("--sin-sello", action="store_true")
-    p.add_argument("--sin-verificacion", action="store_true")
+    p.add_argument("--con-sello", action="store_true", help="escribir el sello de texto bajo la firma (por defecto solo la imagen)")
+    p.add_argument("--sin-verificacion", action="store_true", help="con --con-sello, omitir el código de verificación")
     p.add_argument("--solo-json", action="store_true", help="imprime la petición y no llama al API")
     a = p.parse_args()
 

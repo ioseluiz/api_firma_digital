@@ -39,16 +39,17 @@ _MARGEN_PT = 5 * PT_POR_MM
 @dataclass(frozen=True)
 class ParametrosEstampado:
     codigo: str
-    firmante_nombre: str
     fecha_firma: datetime
+    firmante_nombre: str = ""
     firmante_cargo: str = ""
     pagina: int = 0                      # 0 = última
     x_mm: float = 120.0
     y_mm: float = 40.0
     ancho_mm: float = 50.0
     ancla_texto: str = ""
+    ancla_alineacion: str = "centro"         # "centro": centrada sobre el ancla; "izquierda": alineada a su borde izquierdo
     si_no_hay_ancla: str = "posicion_fija"   # o "error"
-    sello_texto: bool = True
+    sello_texto: bool = False                # por defecto solo la imagen, sin texto
     sello_codigo: bool = True
     plantilla_sello: str = TEXTO_SELLO_POR_DEFECTO
 
@@ -171,9 +172,14 @@ def _rect_firma(
             ancla_encontrada = True
             # La última aparición: las firmas suelen ir al final de la página.
             a = hits[-1]
-            # Imagen apoyada sobre el ancla, alineada a su izquierda, solapando 2 pt para que
-            # una firma sobre una línea "________" se vea natural.
-            rect = pymupdf.Rect(a.x0, a.y0 - alto_pt + 2, a.x0 + ancho_pt, a.y0 + 2)
+            # Imagen apoyada sobre el ancla, solapando 2 pt para que una firma sobre una línea
+            # "________" se vea natural. Centrada sobre el rótulo (bloque típico: línea y debajo
+            # el nombre o el cargo centrados) o alineada a su izquierda ("Firma: ______").
+            if p.ancla_alineacion == "izquierda":
+                x0 = a.x0
+            else:
+                x0 = (a.x0 + a.x1) / 2 - ancho_pt / 2
+            rect = pymupdf.Rect(x0, a.y0 - alto_pt + 2, x0 + ancho_pt, a.y0 + 2)
             return _ajustar_dentro(rect, rect_pagina), ancla_encontrada, a
         ancla_encontrada = False
         if p.si_no_hay_ancla == "error":
@@ -186,33 +192,78 @@ def _rect_firma(
 
 
 def _texto_sello(p: ParametrosEstampado, verif: str) -> str:
-    cargo = f", {p.firmante_cargo.strip()}" if p.firmante_cargo.strip() else ""
+    nombre = p.firmante_nombre.strip()
+    cargo = p.firmante_cargo.strip()
+    cargo = f", {cargo}" if (cargo and nombre) else cargo
     texto = p.plantilla_sello.format(
-        nombre=p.firmante_nombre.strip(),
+        nombre=nombre,
         cargo=cargo,
         fecha=p.fecha_firma.strftime("%d/%m/%Y %H:%M"),
         codigo=p.codigo,
         verif=verif,
     )
+    if not nombre and not cargo:
+        texto = texto.replace(" por  ·", " ·").replace(" por ·", " ·")
     if not p.sello_codigo:
         texto = texto.replace(f" · Verif. {verif}", "").replace(f"Verif. {verif}", "").rstrip(" ·")
     return texto
 
 
-def _insertar_sello(
-    page: pymupdf.Page, rect_firma: pymupdf.Rect, texto: str, rect_ancla: Optional[pymupdf.Rect] = None
-) -> None:
+def _caja_sello(
+    page: pymupdf.Page, rect_firma: pymupdf.Rect, rect_ancla: Optional[pymupdf.Rect]
+) -> pymupdf.Rect:
+    """Elige dónde va el sello sin pisar texto existente.
+
+    Orden: debajo de la firma (y del ancla), bajando por encima de cada línea de texto que estorbe;
+    si no hay sitio abajo, encima de la firma; si tampoco, a la derecha; si nada está libre, debajo
+    de todos modos (mejor un sello solapado que ningún sello).
+    """
     rect_pagina = page.rect
+    limite_inferior = rect_pagina.y1 - 3 * PT_POR_MM
     ancho = max(rect_firma.width, _SELLO_ANCHO_MIN_PT)
+    alto = _SELLO_ALTO_PT
     x0 = rect_firma.x0
     if x0 + ancho > rect_pagina.x1 - _MARGEN_PT:
         x0 = max(rect_pagina.x0 + _MARGEN_PT, rect_pagina.x1 - _MARGEN_PT - ancho)
-    # Debajo de la firma y, si hubo ancla, debajo también del texto del ancla (la firma se apoya
-    # sobre él y el sello no debe pisarlo). Si no cabe abajo, va encima de la firma.
+
+    palabras = [pymupdf.Rect(w[:4]) for w in page.get_text("words")]
+
+    def estorban(caja: pymupdf.Rect) -> list[pymupdf.Rect]:
+        return [r for r in palabras if not r.is_empty and r.intersects(caja)]
+
     tope = rect_firma.y1 if rect_ancla is None else max(rect_firma.y1, rect_ancla.y1)
-    caja = pymupdf.Rect(x0, tope + 1, x0 + ancho, tope + 1 + _SELLO_ALTO_PT)
-    if caja.y1 > rect_pagina.y1 - 3 * PT_POR_MM:
-        caja = pymupdf.Rect(x0, rect_firma.y0 - 1 - _SELLO_ALTO_PT, x0 + ancho, rect_firma.y0 - 1)
+    primera = pymupdf.Rect(x0, tope + 1, x0 + ancho, tope + 1 + alto)
+
+    # 1) Debajo, bajando línea a línea mientras haya texto en medio.
+    caja = pymupdf.Rect(primera)
+    for _ in range(8):
+        if caja.y1 > limite_inferior:
+            break
+        ocupado = estorban(caja)
+        if not ocupado:
+            return caja
+        y = max(r.y1 for r in ocupado) + 1
+        caja = pymupdf.Rect(x0, y, x0 + ancho, y + alto)
+
+    # 2) Encima de la firma.
+    caja = pymupdf.Rect(x0, rect_firma.y0 - 1 - alto, x0 + ancho, rect_firma.y0 - 1)
+    if caja.y0 >= rect_pagina.y0 + _MARGEN_PT and not estorban(caja):
+        return caja
+
+    # 3) A la derecha de la firma, alineado con su base.
+    caja = pymupdf.Rect(rect_firma.x1 + 3, rect_firma.y1 - alto, rect_firma.x1 + 3 + ancho, rect_firma.y1)
+    if caja.x1 <= rect_pagina.x1 - _MARGEN_PT and not estorban(caja):
+        return caja
+
+    return primera if primera.y1 <= limite_inferior else pymupdf.Rect(
+        x0, rect_firma.y0 - 1 - alto, x0 + ancho, rect_firma.y0 - 1
+    )
+
+
+def _insertar_sello(
+    page: pymupdf.Page, rect_firma: pymupdf.Rect, texto: str, rect_ancla: Optional[pymupdf.Rect] = None
+) -> None:
+    caja = _caja_sello(page, rect_firma, rect_ancla)
     sobrante = page.insert_textbox(
         caja, texto, fontsize=_SELLO_TAMANO, fontname=_SELLO_FONT, color=_SELLO_COLOR,
         align=pymupdf.TEXT_ALIGN_LEFT,
@@ -238,6 +289,8 @@ def estampar(pdf: bytes, imagen: bytes, p: ParametrosEstampado) -> ResultadoEsta
         page = doc[idx]
         rect, ancla_encontrada, rect_ancla = _rect_firma(page, p, ancho_pt, alto_pt)
 
+        # insert_image dibuja la imagen en el flujo de contenido de la página (como un XObject),
+        # no como anotación: queda "plana", igual que si viniera impresa en el documento.
         page.insert_image(rect, stream=imagen, keep_proportion=True, overlay=True)
         if p.sello_texto:
             _insertar_sello(page, rect, _texto_sello(p, verif), rect_ancla)

@@ -134,14 +134,15 @@ def firmar(req: func.HttpRequest) -> func.HttpResponse:
 
         params = ParametrosEstampado(
             codigo=peticion.codigo,
+            fecha_firma=peticion.fecha(),
             firmante_nombre=peticion.firmante.nombre,
             firmante_cargo=peticion.firmante.cargo,
-            fecha_firma=peticion.fecha(),
             pagina=peticion.posicion.pagina,
             x_mm=peticion.posicion.x_mm,
             y_mm=peticion.posicion.y_mm,
             ancho_mm=peticion.posicion.ancho_mm,
             ancla_texto=peticion.posicion.ancla_texto,
+            ancla_alineacion=peticion.posicion.ancla_alineacion,
             si_no_hay_ancla=peticion.posicion.si_no_hay_ancla,
             sello_texto=peticion.sello.texto,
             sello_codigo=peticion.sello.codigo_verificacion,
@@ -168,6 +169,24 @@ def firmar(req: func.HttpRequest) -> func.HttpResponse:
             peticion.codigo, peticion.solicitud_id, len(pdf), len(resultado.pdf), resultado.paginas,
             resultado.pagina_firmada, resultado.ancla_encontrada, duracion_ms, correlation_id,
         )
+        if "application/pdf" in (req.headers.get("Accept") or ""):
+            # Para pruebas manuales (Postman "Send and Download", curl -o): el PDF como archivo,
+            # con los datos de la respuesta JSON en cabeceras. El flujo usa siempre el JSON.
+            return func.HttpResponse(
+                resultado.pdf,
+                status_code=200,
+                mimetype="application/pdf",
+                headers={
+                    "X-Correlation-Id": correlation_id,
+                    "Content-Disposition": f'attachment; filename="{peticion.codigo}_firmado.pdf"',
+                    "X-Sha256": resultado.sha256,
+                    "X-Codigo-Verificacion": resultado.codigo_verificacion,
+                    "X-Paginas": str(resultado.paginas),
+                    "X-Pagina-Firmada": str(resultado.pagina_firmada),
+                    "X-Ancla-Encontrada": str(resultado.ancla_encontrada).lower(),
+                    "X-Duracion-Ms": str(duracion_ms),
+                },
+            )
         return _json(respuesta.model_dump(), 200, correlation_id)
 
     except ErrorFirma as e:

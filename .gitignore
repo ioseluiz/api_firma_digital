@@ -11,3 +11,6 @@ firmas_local/
 !tests/muestras/*.pdf
 salida/
 .playwright-mcp/
+
+# Entornos de Postman: llevan el documento en base64
+postman/*.postman_environment.json

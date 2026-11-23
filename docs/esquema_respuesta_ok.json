@@ -1,0 +1,43 @@
+{
+  "properties": {
+    "ok": {
+      "default": true,
+      "type": "boolean"
+    },
+    "codigo": {
+      "type": "string"
+    },
+    "pdf_firmado_base64": {
+      "type": "string"
+    },
+    "sha256": {
+      "type": "string"
+    },
+    "codigo_verificacion": {
+      "type": "string"
+    },
+    "paginas": {
+      "type": "integer"
+    },
+    "pagina_firmada": {
+      "type": "integer"
+    },
+    "ancla_encontrada": {
+      "default": null,
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "firmante": {
+      "type": "string"
+    },
+    "fecha_firma": {
+      "type": "string"
+    },
+    "duracion_ms": {
+      "type": "integer"
+    }
+  },
+  "type": "object"
+}

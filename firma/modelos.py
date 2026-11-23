@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class Firmante(BaseModel):
-    nombre: str = Field(min_length=1, max_length=120, description="Como aparece en el sello: 'Ing. Juan Pérez'")
+    nombre: str = Field(default="", max_length=120, description="Solo se usa si sello.texto es true: 'Ing. Juan Pérez'")
     cargo: str = Field(default="", max_length=160)
     email: str = Field(default="", max_length=160)
     imagen_id: str = Field(
@@ -26,6 +26,10 @@ class Posicion(BaseModel):
     y_mm: float = Field(default=40.0, ge=0, description="Desde el borde inferior hasta la base de la imagen, en mm")
     ancho_mm: float = Field(default=50.0, gt=0, le=200)
     ancla_texto: str = Field(default="", max_length=120, description="Texto a buscar en la página; si aparece, la firma se coloca sobre él")
+    ancla_alineacion: Literal["centro", "izquierda"] = Field(
+        default="centro",
+        description="'centro': la firma se centra sobre el rótulo (línea con el cargo debajo); 'izquierda': alineada al borde izquierdo del rótulo ('Firma: ____')",
+    )
     si_no_hay_ancla: Literal["posicion_fija", "error"] = Field(
         default="posicion_fija",
         description="Qué hacer si se pidió ancla y no aparece: usar la posición fija o responder 422",
@@ -33,8 +37,10 @@ class Posicion(BaseModel):
 
 
 class Sello(BaseModel):
-    texto: bool = True
-    codigo_verificacion: bool = True
+    """Por defecto NO se escribe nada: solo la imagen, incrustada en el contenido de la página."""
+
+    texto: bool = Field(default=False, description="Escribir el sello de texto bajo la firma")
+    codigo_verificacion: bool = Field(default=True, description="Incluir el código de verificación en el sello (si texto es true)")
 
 
 class FirmaRequest(BaseModel):

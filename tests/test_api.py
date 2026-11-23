@@ -59,6 +59,47 @@ def test_firmar_ok(app_local, pdf_con_ancla):
     assert "Ing. Juan Pérez" in doc[2].get_text()
 
 
+def test_firmar_peticion_minima_solo_imagen(app_local, pdf_1_pagina):
+    """Sin nombre, sin cargo, sin sello: lo mínimo que el flujo necesita mandar."""
+    minima = {
+        "solicitud_id": 1, "codigo": "FIRMA-2026-000001",
+        "pdf_base64": base64.b64encode(pdf_1_pagina).decode("ascii"),
+        "firmante": {"imagen_id": "gerente.png"},
+        "fecha_firma": "2026-11-18T14:05:12",
+    }
+    texto_antes = pymupdf.open(stream=pdf_1_pagina, filetype="pdf")[0].get_text()
+    resp = app_local.firmar.build().get_user_function()(peticion(minima))
+    assert resp.status_code == 200, resp.get_body()
+    datos = json.loads(resp.get_body())
+    page = pymupdf.open(stream=base64.b64decode(datos["pdf_firmado_base64"]), filetype="pdf")[0]
+    assert len(page.get_images()) == 1
+    assert page.get_text() == texto_antes
+    assert datos["firmante"] == ""
+
+
+def test_firmar_devuelve_pdf_binario_si_se_pide_por_accept(app_local, pdf_con_ancla):
+    req = peticion(cuerpo_valido(pdf_con_ancla, posicion={"ancla_texto": "Firma del Gerente:"}),
+                   headers={"Content-Type": "application/json", "Accept": "application/pdf"})
+    resp = app_local.firmar.build().get_user_function()(req)
+    assert resp.status_code == 200
+    assert resp.mimetype == "application/pdf"
+    cuerpo = resp.get_body()
+    assert cuerpo.startswith(b"%PDF")
+    assert resp.headers["X-Sha256"] == __import__("hashlib").sha256(cuerpo).hexdigest()
+    assert resp.headers["X-Pagina-Firmada"] == "3" and resp.headers["X-Ancla-Encontrada"] == "true"
+    assert 'FIRMA-2026-000123_firmado.pdf' in resp.headers["Content-Disposition"]
+    assert len(pymupdf.open(stream=cuerpo, filetype="pdf")[2].get_images()) == 1
+
+
+def test_errores_siguen_siendo_json_aunque_se_pida_pdf(app_local, pdf_1_pagina):
+    c = cuerpo_valido(pdf_1_pagina)
+    c["firmante"]["imagen_id"] = "nadie.png"
+    req = peticion(c, headers={"Content-Type": "application/json", "Accept": "application/pdf"})
+    resp = app_local.firmar.build().get_user_function()(req)
+    assert resp.status_code == 404
+    assert json.loads(resp.get_body())["error"] == "imagen_no_encontrada"
+
+
 def test_firmar_cuerpo_no_json(app_local):
     req = peticion(b"esto no es json")
     resp = app_local.firmar.build().get_user_function()(req)

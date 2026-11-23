@@ -1,7 +1,8 @@
 # api-ini-firma — servicio de firma para INI Firma
 
-Azure Function (Python 3.12) que recibe un PDF, le estampa la imagen de la firma del gerente y un
-sello de texto, y devuelve el PDF firmado con su hash. Es la pieza en Azure del plan
+Azure Function (Python 3.12) que recibe un PDF, le incrusta la imagen de la firma del gerente
+(plana, en el contenido de la página; opcionalmente con un sello de texto) y devuelve el PDF
+firmado con su hash. Es la pieza en Azure del plan
 `../PLAN.md` (sección 8). La llama el flujo **F02 Aprobar y firmar** de Power Automate con una
 acción HTTP.
 
@@ -57,6 +58,36 @@ python scripts\firmar_local.py --pdf memo.pdf --pagina 0 --x-mm 120 --y-mm 40 --
 python scripts\firmar_local.py --pdf memo.pdf --solo-json      # imprime la petición para copiarla al flujo
 ```
 
+Usa `http://127.0.0.1:7071`, no `localhost`: en Windows `localhost` intenta IPv6 primero y cada
+petición tarda ~2 s de más (medido: 220 ms de conexión frente a 1 ms).
+
+### Probar con Postman
+
+En `postman/` hay una colección con nueve peticiones (salud, tres variantes de firma que descargan el
+PDF, una con sello, cuatro casos de error) con sus aserciones. El documento viaja en una variable de
+entorno que se genera con un script, para no pegar base64 a mano:
+
+```powershell
+.\.venv\Scripts\python.exe postman\generar_entorno.py --pdf salida\mi_documento.pdf --imagen-id mifirma.png --ancla "Gerente INIG"
+```
+
+Luego en Postman: *Import* → arrastrar `postman\INI_Firma.postman_collection.json` y
+`postman\INI_Firma.local.postman_environment.json` → seleccionar el entorno «INI Firma (local)»
+arriba a la derecha → abrir la colección y *Run* (o enviar cada petición). Las peticiones que llevan
+`Accept: application/pdf` devuelven el archivo: con **Send and Download** (flecha junto a *Send*)
+se guarda el PDF firmado y se abre directo.
+
+Para apuntar a Azure, generar otro entorno con `--base-url https://func-ini-firma-dev.azurewebsites.net --clave <function key> --nombre dev`.
+Los archivos de entorno están en `.gitignore` porque contienen el documento.
+
+Desde línea de comandos, la misma colección corre con [newman](https://www.npmjs.com/package/newman):
+`newman run postman\INI_Firma.postman_collection.json -e postman\INI_Firma.local.postman_environment.json`.
+
+**Respuesta como archivo.** Cualquier petición a `/firmar` con cabecera `Accept: application/pdf`
+recibe el PDF firmado como binario (`Content-Disposition: attachment`) y los datos del JSON en
+cabeceras `X-Sha256`, `X-Codigo-Verificacion`, `X-Paginas`, `X-Pagina-Firmada`, `X-Ancla-Encontrada`,
+`X-Duracion-Ms`. Los errores siguen siendo JSON. El flujo de Power Automate usa siempre el JSON.
+
 Sin instalar `func`, la lógica se prueba igual con `pytest` (las pruebas llaman a las funciones
 directamente). `scripts/firmar_local.py` necesita el host corriendo o la URL de Azure.
 
@@ -66,6 +97,20 @@ directamente). `scripts/firmar_local.py` necesita el host corriendo o la URL de 
 
 Cabeceras: `Content-Type: application/json`, `X-Correlation-Id` (opcional; se devuelve igual y se
 registra; el flujo manda el nombre de su ejecución). Autenticación: ver más abajo.
+
+Petición mínima (solo la imagen, en la última página, posición por defecto):
+
+```json
+{
+  "solicitud_id": 123,
+  "codigo": "FIRMA-2026-000123",
+  "pdf_base64": "<PDF en base64>",
+  "firmante": { "imagen_id": "gerente.png" },
+  "fecha_firma": "2026-11-18T14:05:12"
+}
+```
+
+Petición completa:
 
 ```json
 {
@@ -82,26 +127,33 @@ registra; el flujo manda el nombre de su ejecución). Autenticación: ver más a
   "posicion": {
     "pagina": 0,
     "x_mm": 120, "y_mm": 40, "ancho_mm": 50,
-    "ancla_texto": "Firma del Gerente:",
+    "ancla_texto": "Gerente INIG",
+    "ancla_alineacion": "centro",
     "si_no_hay_ancla": "posicion_fija"
   },
-  "sello": { "texto": true, "codigo_verificacion": true }
+  "sello": { "texto": false, "codigo_verificacion": true }
 }
 ```
 
 | Campo | Notas |
 |---|---|
-| `codigo` | Código de la solicitud; va al sello y a los metadatos del PDF. |
+| `codigo` | Código de la solicitud; va a los metadatos del PDF (y al sello, si se pide). |
 | `firmante.imagen_id` | Nombre del archivo en el origen de imágenes (`gerente.png`, `suplente.png`). Solo letras, dígitos, `_ . -`. Lo decide el flujo según `FIRMA_Roles`. |
-| `fecha_firma` | Hora local de Panamá en ISO 8601, sin zona. Es lo que se imprime en el sello. |
+| `firmante.nombre`, `cargo` | Opcionales. Solo se imprimen si `sello.texto` es `true`. |
+| `fecha_firma` | Hora local de Panamá en ISO 8601, sin zona. Entra en el código de verificación y, si hay sello, se imprime. |
 | `posicion.pagina` | `0` = última página; `n` = página `n` (base 1). |
 | `posicion.x_mm`, `y_mm` | Posición fija: desde el borde izquierdo y desde el borde **inferior** hasta la base de la imagen. |
 | `posicion.ancho_mm` | Ancho de la imagen; el alto se calcula con la proporción del PNG. |
-| `posicion.ancla_texto` | Si se indica y aparece en la página, la firma se apoya sobre la **última** aparición, alineada a su izquierda. |
+| `posicion.ancla_texto` | Si se indica y aparece en la página, la firma se apoya sobre la **última** aparición. |
+| `posicion.ancla_alineacion` | `centro` (por defecto): centrada sobre el rótulo, para bloques «línea y debajo el cargo». `izquierda`: alineada al borde izquierdo del rótulo, para «Firma: ______». |
 | `posicion.si_no_hay_ancla` | `posicion_fija` (por defecto: usa `x_mm`/`y_mm` y responde `ancla_encontrada: false`) o `error` (responde 422). |
-| `sello.texto` | Imprime el sello bajo la firma. `sello.codigo_verificacion` añade el código de verificación al sello. |
+| `sello.texto` | **Por defecto `false`: solo la imagen.** Con `true` imprime bajo la firma «Firmado electrónicamente por {nombre}, {cargo} · {fecha} · {codigo} · Verif. {verif}», buscando una franja sin texto. `sello.codigo_verificacion` controla si va el código. |
 
 Si la firma se saliera de la página, se desplaza hacia adentro con 5 mm de margen (no se encoge).
+
+**La imagen queda plana.** Se dibuja en el flujo de contenido de la página (un XObject de imagen),
+no como anotación ni campo de formulario: un visor no la puede seleccionar, mover ni eliminar, igual
+que si el documento se hubiera impreso con la firma. Para quitarla habría que editar el PDF.
 
 Respuesta `200`:
 
@@ -161,9 +213,11 @@ Responde `503` si la imagen por defecto no es accesible. Es lo que vigila el mon
 1. Rechaza lo que no se puede firmar bien: no-PDF, cifrado, XFA, sin páginas.
 2. Calcula el código de verificación sobre el original.
 3. Elige la página (`0` = última) y el rectángulo (ancla o posición fija), ajustado dentro de la página.
-4. Inserta el PNG (fondo transparente) y, debajo, el sello en Helvetica 6.5 pt gris:
+4. Inserta el PNG (fondo transparente) en el contenido de la página. Solo si `sello.texto` es
+   `true`, escribe debajo el sello en Helvetica 6.5 pt gris:
    `Firmado electrónicamente por {nombre}{cargo} · {fecha} · {codigo} · Verif. {verif}`
-   (plantilla configurable con `FIRMA_TEXTO_SELLO`). Si no cabe debajo, va encima.
+   (plantilla configurable con `FIRMA_TEXTO_SELLO`), en una franja libre de texto: baja por debajo
+   de lo que estorbe; si no hay sitio, encima; si tampoco, a la derecha.
 5. Escribe el código en los metadatos (`Keywords`) y guarda con compresión.
 
 Tiempo típico: menos de 1 s para 50 páginas. La imagen se cachea en memoria 10 minutos.
@@ -189,11 +243,21 @@ administrada y los roles mínimos.
 
 ```powershell
 az login
-az group create -n rg-ini-firma-dev -l eastus2 --tags division=INI sistema="INI Firma"
+az provider register -n Microsoft.KeyVault; az provider register -n Microsoft.Insights   # una vez por suscripción
+az group create -n rg-ini-firma-dev -l eastus2 --tags division=INI sistema="INI Firma" entorno=dev
 az deployment group what-if -g rg-ini-firma-dev -f infra/main.bicep -p infra/dev.bicepparam
 az deployment group create  -g rg-ini-firma-dev -f infra/main.bicep -p infra/dev.bicepparam
 func azure functionapp publish func-ini-firma-dev --python
 ```
+
+`func publish` busca `az` en el PATH para autenticarse: si la CLI está en el entorno virtual,
+anteponer su carpeta (`$env:PATH = "$env:USERPROFILE\.venv-azcli\Scripts;$env:PATH"`).
+
+**Desplegado en `dev` el 2026-11-23** en la suscripción Visual Studio Professional del autor
+(tenant `pancanal.onmicrosoft.com`, grupo `rg-ini-firma-dev`, eastus2). URL:
+`https://func-ini-firma-dev.azurewebsites.net/api/v1/firmar`. La colección de Postman pasa completa
+contra Azure (9 peticiones, 23 aserciones; ~90 ms por firma con el host caliente, hasta 5 s en
+arranque en frío).
 
 Azure CLI **sin permisos de administrador** (el MSI pide elevación; pip instala por usuario en un
 entorno virtual aparte, y `az bicep install` descarga el compilador a `%USERPROFILE%\.azure\bin`):
