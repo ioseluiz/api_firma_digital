@@ -4,10 +4,13 @@
 #
 # Autenticación en Azure sin secretos: la identidad administrada `id-github-ini-firma`
 # (rg-ini-firma-dev) tiene credenciales federadas que solo aceptan tokens OIDC emitidos por
-# GitHub para ESTE repositorio: subject `repo:ioseluiz/api_firma_digital:environment:dev`
-# (el job de despliegue usa `environment: dev`, y entonces GitHub emite ese subject en vez del
-# de la rama). Los tres IDs de abajo son identificadores, no credenciales; sin el token OIDC de
-# este repositorio no sirven para nada.
+# GitHub para ESTE repositorio. El subject que GitHub presenta lleva los IDs numéricos del dueño
+# y del repositorio: `repo:ioseluiz@42367982/api_firma_digital@1468868023:environment:dev`
+# (el job de despliegue usa `environment: dev`; sin environment sería `...:ref:refs/heads/main`).
+# Si el repositorio se renombra o cambia de dueño, hay que recrear la credencial federada
+# (`az identity federated-credential create ... --subject <el que aparezca en el error AADSTS700213>`).
+# Los tres IDs de abajo son identificadores, no credenciales; sin el token OIDC de este
+# repositorio no sirven para nada.
 
 name: Pruebas y despliegue (dev)
 
