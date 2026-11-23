@@ -59,6 +59,8 @@ class Posicion(BaseModel):
     x_mm: float = Field(default=120.0, ge=0, description="Desde el borde izquierdo, en mm")
     y_mm: float = Field(default=40.0, ge=0, description="Desde el borde inferior hasta la base de la imagen, en mm")
     ancho_mm: float = Field(default=50.0, gt=0, le=200)
+    x_pct: Optional[float] = Field(default=None, ge=0, le=100, description="Centro de la firma como % del ancho de la página desde la izquierda (clic del gerente). Con y_pct, manda sobre ancla y posición fija")
+    y_pct: Optional[float] = Field(default=None, ge=0, le=100, description="Centro de la firma como % del alto de la página desde arriba")
     ancla_texto: str = Field(default="", max_length=120, description="Texto a buscar en la página; si aparece, la firma se coloca sobre él")
     ancla_alineacion: Literal["centro", "izquierda"] = Field(
         default="centro",
@@ -140,6 +142,19 @@ class VisorResponse(BaseModel):
     blob: str
     bytes: int
     dias_vigencia: int
+
+
+class PaginaInfo(BaseModel):
+    numero: int
+    ancho_mm: float
+    alto_mm: float
+
+
+class VisorInfoResponse(BaseModel):
+    ok: Literal[True] = True
+    codigo: str
+    paginas: int
+    tamanos: list[PaginaInfo]
 
 
 class VisorBorradoResponse(BaseModel):

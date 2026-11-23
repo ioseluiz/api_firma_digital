@@ -46,6 +46,8 @@ class ParametrosEstampado:
     x_mm: float = 120.0
     y_mm: float = 40.0
     ancho_mm: float = 50.0
+    x_pct: Optional[float] = None            # centro de la firma, % del ancho de la página desde la izquierda
+    y_pct: Optional[float] = None            # centro de la firma, % del alto de la página desde ARRIBA (como un clic)
     ancla_texto: str = ""
     ancla_alineacion: str = "centro"         # "centro": centrada sobre el ancla; "izquierda": alineada a su borde izquierdo
     si_no_hay_ancla: str = "posicion_fija"   # o "error"
@@ -165,6 +167,13 @@ def _rect_firma(
     """Devuelve (rectángulo de la imagen, si se encontró el ancla [None si no se pidió], rect del ancla)."""
     rect_pagina = page.rect
     ancla_encontrada: Optional[bool] = None
+
+    # Clic del gerente en la app: manda sobre el ancla y sobre la posición fija.
+    if p.x_pct is not None and p.y_pct is not None:
+        cx = rect_pagina.x0 + rect_pagina.width * p.x_pct / 100.0
+        cy = rect_pagina.y0 + rect_pagina.height * p.y_pct / 100.0
+        rect = pymupdf.Rect(cx - ancho_pt / 2, cy - alto_pt / 2, cx + ancho_pt / 2, cy + alto_pt / 2)
+        return _ajustar_dentro(rect, rect_pagina), None, None
 
     if p.ancla_texto.strip():
         hits = page.search_for(p.ancla_texto.strip())

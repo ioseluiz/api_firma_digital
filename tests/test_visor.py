@@ -252,6 +252,30 @@ def test_abrir_sin_secreto_configurado_es_404(app_visor, pdf_1_pagina, monkeypat
     assert _abrir(app_visor, "FIRMA-2026-000012", "x" * 32).status_code == 404
 
 
+def _ruta_anonima(app, fn, codigo, token, extra=None):
+    import azure.functions as func
+
+    params = {"codigo": codigo, "token": token, **(extra or {})}
+    req = func.HttpRequest(method="GET", url="http://localhost/api/v1/x", body=b"", headers={}, route_params=params)
+    return getattr(app, fn).build().get_user_function()(req)
+
+
+def test_info_y_pagina_png(app_visor, pdf_con_ancla, monkeypatch):
+    monkeypatch.setenv("VISOR_SECRETO", "clave-de-prueba")
+    assert _publicar(app_visor, pdf_con_ancla).status_code == 200
+    token = token_para("FIRMA-2026-000012", "clave-de-prueba")
+    info = _ruta_anonima(app_visor, "visor_info", "FIRMA-2026-000012", token)
+    assert info.status_code == 200 and info.headers["Access-Control-Allow-Origin"] == "*"
+    d = json.loads(info.get_body())
+    assert d["paginas"] == 3 and abs(d["tamanos"][0]["ancho_mm"] - 210) < 1 and abs(d["tamanos"][0]["alto_mm"] - 297) < 1
+    png = _ruta_anonima(app_visor, "visor_pagina", "FIRMA-2026-000012", token, {"numero": "3"})
+    assert png.status_code == 200 and png.mimetype == "image/png" and png.get_body().startswith(b"\x89PNG")
+    ultima = _ruta_anonima(app_visor, "visor_pagina", "FIRMA-2026-000012", token, {"numero": "0"})
+    assert ultima.status_code == 200
+    assert _ruta_anonima(app_visor, "visor_pagina", "FIRMA-2026-000012", token, {"numero": "9"}).status_code == 404
+    assert _ruta_anonima(app_visor, "visor_pagina", "FIRMA-2026-000012", "0" * 32, {"numero": "1"}).status_code == 404
+
+
 def test_url_corta_escapa_el_codigo():
     u = url_corta("https://h/api/v1", "A/B:C", "s")
     assert "/visor/A%2FB%3AC/abrir/" in u

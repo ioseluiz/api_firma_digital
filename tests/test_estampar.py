@@ -211,3 +211,30 @@ def test_metadatos_llevan_el_codigo(pdf_1_pagina, imagen_firma, fecha):
 def test_imagen_invalida(pdf_1_pagina, fecha):
     with pytest.raises(PdfInvalido, match="imagen"):
         estampar(pdf_1_pagina, b"no soy una imagen", params(fecha_firma=fecha))
+
+
+def test_posicion_por_porcentaje_centra_la_firma_y_manda_sobre_el_ancla(pdf_con_ancla, imagen_firma, fecha):
+    import pymupdf
+
+    from firma.estampar import PT_POR_MM, ParametrosEstampado, estampar
+
+    p = ParametrosEstampado(codigo="X-1", fecha_firma=fecha, pagina=0, ancho_mm=50, x_pct=50, y_pct=25,
+                            ancla_texto="Firma del Gerente:")
+    r = estampar(pdf_con_ancla, imagen_firma, p)
+    assert r.ancla_encontrada is None  # el clic manda; el ancla ni se busca
+    x0, y0, x1, y1 = r.rect_firma
+    page = pymupdf.open(stream=r.pdf, filetype="pdf")[r.pagina_firmada - 1]
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    assert abs(cx - page.rect.width * 0.50) < 1 and abs(cy - page.rect.height * 0.25) < 1
+    assert abs((x1 - x0) - 50 * PT_POR_MM) < 0.5
+
+
+def test_posicion_por_porcentaje_en_el_borde_se_queda_dentro(pdf_1_pagina, imagen_firma, fecha):
+    import pymupdf
+
+    from firma.estampar import ParametrosEstampado, estampar
+
+    r = estampar(pdf_1_pagina, imagen_firma, ParametrosEstampado(codigo="X-1", fecha_firma=fecha, x_pct=100, y_pct=100))
+    page = pymupdf.open(stream=r.pdf, filetype="pdf")[0]
+    x0, y0, x1, y1 = r.rect_firma
+    assert x1 <= page.rect.width and y1 <= page.rect.height and x0 >= 0 and y0 >= 0

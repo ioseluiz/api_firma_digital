@@ -6,6 +6,8 @@ Rutas:
   GET    /api/v1/visor/{codigo}   URL SAS nueva para un original ya publicado
   DELETE /api/v1/visor/{codigo}   borra el original del visor (idempotente)
   GET    /api/v1/visor/{codigo}/abrir/{token}   ANÓNIMA: sirve el PDF (con CORS); es la URL que guarda SharePoint
+  GET    /api/v1/visor/{codigo}/pagina/{n}/{token}   ANÓNIMA: la página n como PNG (para elegir con un clic dónde va la firma)
+  GET    /api/v1/visor/{codigo}/info/{token}    ANÓNIMA: número de páginas y tamaño en mm de cada una
   GET    /api/v1/salud            versión, origen de imágenes, visor y si la imagen por defecto es accesible
 
 Seguridad: en producción va detrás de Easy Auth (Entra ID, rol Firma.Ejecutar). Mientras tanto,
@@ -33,8 +35,8 @@ from firma.errores import ErrorFirma, PdfDemasiadoGrande, PdfInvalido, PeticionI
 from firma.estampar import TEXTO_SELLO_POR_DEFECTO, ParametrosEstampado, estampar
 from firma.imagenes import OrigenImagenes, origen_desde_entorno
 from firma.modelos import (
-    CODIGO_PATRON, ErrorResponse, FirmaRequest, FirmaResponse, SaludResponse,
-    VisorBorradoResponse, VisorRequest, VisorResponse,
+    CODIGO_PATRON, ErrorResponse, FirmaRequest, FirmaResponse, PaginaInfo, SaludResponse,
+    VisorBorradoResponse, VisorInfoResponse, VisorRequest, VisorResponse,
 )
 from firma.visor import AlmacenVisor, almacen_desde_entorno, token_valido, url_corta
 
@@ -298,6 +300,75 @@ def visor_abrir(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse("Visor no disponible.", status_code=500, mimetype="text/plain")
 
 
+def _visor_anonimo(req: func.HttpRequest, correlation_id: str):
+    """Valida código y token de una ruta anónima del visor; devuelve (codigo, pdf) o una respuesta de error."""
+    codigo = _codigo_de_ruta(req)
+    if not token_valido(codigo, req.route_params.get("token", ""), os.getenv("VISOR_SECRETO", "")):
+        log.warning("visor ruta anónima rechazada codigo=%s corr=%s", codigo, correlation_id)
+        return codigo, None, func.HttpResponse("No encontrado.", status_code=404, mimetype="text/plain")
+    return codigo, obtener_visor().leer(codigo), None
+
+
+@app.route(route="v1/visor/{codigo}/info/{token}", methods=["GET", "OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def visor_info(req: func.HttpRequest) -> func.HttpResponse:
+    correlation_id = req.headers.get("X-Correlation-Id") or str(uuid.uuid4())
+    codigo = "?"
+    try:
+        if req.method.upper() == "OPTIONS":
+            return func.HttpResponse("", status_code=204, headers=_cors())
+        codigo, pdf, error = _visor_anonimo(req, correlation_id)
+        if error:
+            return error
+        import pymupdf
+
+        with pymupdf.open(stream=pdf, filetype="pdf") as doc:
+            tamanos = [PaginaInfo(numero=i + 1, ancho_mm=round(p.rect.width / 72 * 25.4, 1), alto_mm=round(p.rect.height / 72 * 25.4, 1)) for i, p in enumerate(doc)]
+        cuerpo = VisorInfoResponse(codigo=codigo, paginas=len(tamanos), tamanos=tamanos).model_dump()
+        return func.HttpResponse(json.dumps(cuerpo, ensure_ascii=False), status_code=200, mimetype="application/json",
+                                 headers={**_cors(), "Cache-Control": "private, max-age=300", "X-Correlation-Id": correlation_id})
+    except ErrorFirma as e:
+        return func.HttpResponse("No encontrado." if e.http == 404 else "Visor no disponible.", status_code=e.http, mimetype="text/plain", headers=_cors())
+    except Exception:
+        log.exception("visor info error interno codigo=%s corr=%s", codigo, correlation_id)
+        return func.HttpResponse("Visor no disponible.", status_code=500, mimetype="text/plain", headers=_cors())
+
+
+@app.route(route="v1/visor/{codigo}/pagina/{numero}/{token}", methods=["GET", "OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def visor_pagina(req: func.HttpRequest) -> func.HttpResponse:
+    """La página pedida como PNG (ancho ~1000 px): la app la muestra en un control Imagen con una cuadrícula
+    encima; como la imagen no tiene desplazamiento interno, el clic se traduce a % de la página sin ambigüedad."""
+    correlation_id = req.headers.get("X-Correlation-Id") or str(uuid.uuid4())
+    codigo = "?"
+    try:
+        if req.method.upper() == "OPTIONS":
+            return func.HttpResponse("", status_code=204, headers=_cors())
+        codigo, pdf, error = _visor_anonimo(req, correlation_id)
+        if error:
+            return error
+        try:
+            numero = int(req.route_params.get("numero", "0"))
+        except ValueError:
+            numero = 0
+        import pymupdf
+
+        with pymupdf.open(stream=pdf, filetype="pdf") as doc:
+            if numero == 0:
+                numero = doc.page_count
+            if numero < 1 or numero > doc.page_count:
+                return func.HttpResponse("Página fuera de rango.", status_code=404, mimetype="text/plain", headers=_cors())
+            page = doc[numero - 1]
+            escala = 1000.0 / max(page.rect.width, 1)
+            png = page.get_pixmap(matrix=pymupdf.Matrix(escala, escala), alpha=False).tobytes("png")
+        log.info("visor pagina codigo=%s n=%d bytes=%d corr=%s", codigo, numero, len(png), correlation_id)
+        return func.HttpResponse(png, status_code=200, mimetype="image/png",
+                                 headers={**_cors(), "Cache-Control": "private, max-age=300", "X-Correlation-Id": correlation_id})
+    except ErrorFirma as e:
+        return func.HttpResponse("No encontrado." if e.http == 404 else "Visor no disponible.", status_code=e.http, mimetype="text/plain", headers=_cors())
+    except Exception:
+        log.exception("visor pagina error interno codigo=%s corr=%s", codigo, correlation_id)
+        return func.HttpResponse("Visor no disponible.", status_code=500, mimetype="text/plain", headers=_cors())
+
+
 @app.route(route="v1/firmar", methods=["POST"])
 def firmar(req: func.HttpRequest) -> func.HttpResponse:
     correlation_id = req.headers.get("X-Correlation-Id") or str(uuid.uuid4())
@@ -336,6 +407,8 @@ def firmar(req: func.HttpRequest) -> func.HttpResponse:
             x_mm=peticion.posicion.x_mm,
             y_mm=peticion.posicion.y_mm,
             ancho_mm=peticion.posicion.ancho_mm,
+            x_pct=peticion.posicion.x_pct,
+            y_pct=peticion.posicion.y_pct,
             ancla_texto=peticion.posicion.ancla_texto,
             ancla_alineacion=peticion.posicion.ancla_alineacion,
             si_no_hay_ancla=peticion.posicion.si_no_hay_ancla,
