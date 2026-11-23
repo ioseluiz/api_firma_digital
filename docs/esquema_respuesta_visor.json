@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "ok": { "type": "boolean" },
+    "codigo": { "type": "string" },
+    "url_visor": { "type": "string" },
+    "vence_utc": { "type": "string" },
+    "blob": { "type": "string" },
+    "bytes": { "type": "integer" },
+    "dias_vigencia": { "type": "integer" }
+  }
+}

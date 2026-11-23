@@ -1,0 +1,377 @@
+{
+  "properties": {
+    "connectionReferences": {
+      "shared_sharepointonline": {
+        "runtimeSource": "embedded",
+        "connection": {
+          "connectionReferenceLogicalName": "ini_firma_sharepoint"
+        },
+        "api": {
+          "name": "shared_sharepointonline"
+        }
+      },
+      "shared_office365": {
+        "runtimeSource": "embedded",
+        "connection": {
+          "connectionReferenceLogicalName": "ini_firma_outlook"
+        },
+        "api": {
+          "name": "shared_office365"
+        }
+      }
+    },
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        },
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        },
+        "ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)": {
+          "defaultValue": "SIN_CONFIGURAR",
+          "type": "String",
+          "metadata": {
+            "schemaName": "ini_FIRMA_SitioUrl"
+          }
+        },
+        "ini_FIRMA_BibliotecaId (ini_FIRMA_BibliotecaId)": {
+          "defaultValue": "SIN_CONFIGURAR",
+          "type": "String",
+          "metadata": {
+            "schemaName": "ini_FIRMA_BibliotecaId"
+          }
+        },
+        "ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)": {
+          "defaultValue": "SIN_CONFIGURAR",
+          "type": "String",
+          "metadata": {
+            "schemaName": "ini_FIRMA_ModoPrueba"
+          }
+        },
+        "ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)": {
+          "defaultValue": "SIN_CONFIGURAR",
+          "type": "String",
+          "metadata": {
+            "schemaName": "ini_FIRMA_CorreoSoporte"
+          }
+        }
+      },
+      "triggers": {
+        "Cada_dia_habil_8am": {
+          "type": "Recurrence",
+          "recurrence": {
+            "frequency": "Week",
+            "interval": 1,
+            "timeZone": "SA Pacific Standard Time",
+            "schedule": {
+              "weekDays": [
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday"
+              ],
+              "hours": [
+                "8"
+              ],
+              "minutes": [
+                0
+              ]
+            }
+          }
+        }
+      },
+      "actions": {
+        "Iniciar_filas": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "Filas",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          },
+          "runAfter": {}
+        },
+        "Leer_roles": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "GetItems"
+            },
+            "parameters": {
+              "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+              "table": "41a2b1f3-f830-4b76-9d11-a7d466020d5a",
+              "$filter": "Activo eq 1",
+              "$orderby": "Title",
+              "$top": 50
+            },
+            "authentication": "@parameters('$authentication')"
+          },
+          "runAfter": {
+            "Iniciar_filas": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Filtrar_Gerente": {
+          "type": "Query",
+          "inputs": {
+            "from": "@body('Leer_roles')?['value']",
+            "where": "@equals(item()?['Title'],'Gerente')"
+          },
+          "runAfter": {
+            "Leer_roles": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Filtrar_Secretaria": {
+          "type": "Query",
+          "inputs": {
+            "from": "@body('Leer_roles')?['value']",
+            "where": "@equals(item()?['Title'],'Secretaria')"
+          },
+          "runAfter": {
+            "Filtrar_Gerente": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Leer_dias": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "GetItems"
+            },
+            "parameters": {
+              "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+              "table": "5b8a0ed7-f8c3-44da-864a-6565621accd4",
+              "$filter": "Clave eq 'Dias_Recordatorio'",
+              "$top": 1
+            },
+            "authentication": "@parameters('$authentication')"
+          },
+          "runAfter": {
+            "Filtrar_Secretaria": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Dias": {
+          "type": "Compose",
+          "inputs": "@if(empty(coalesce(first(body('Leer_dias')?['value'])?['Valor'],'')), 2, int(first(body('Leer_dias')?['value'])?['Valor']))",
+          "runAfter": {
+            "Leer_dias": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Pendientes": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "GetItems"
+            },
+            "parameters": {
+              "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+              "table": "767347d5-3d27-4b12-8360-f114d5c51002",
+              "$filter": "Estado eq 'Pendiente de firma'",
+              "$orderby": "Fecha_Envio asc",
+              "$top": 100
+            },
+            "authentication": "@parameters('$authentication')"
+          },
+          "runAfter": {
+            "Dias": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Vencidas": {
+          "type": "Query",
+          "inputs": {
+            "from": "@body('Pendientes')?['value']",
+            "where": "@lessOrEquals(ticks(coalesce(item()?['Fecha_Envio'], item()?['Created'])), ticks(addDays(utcNow(), mul(outputs('Dias'), -1))))"
+          },
+          "runAfter": {
+            "Pendientes": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Urgentes": {
+          "type": "Query",
+          "inputs": {
+            "from": "@body('Vencidas')",
+            "where": "@equals(item()?['Urgencia']?['Value'],'Urgente')"
+          },
+          "runAfter": {
+            "Vencidas": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Normales": {
+          "type": "Query",
+          "inputs": {
+            "from": "@body('Vencidas')",
+            "where": "@not(equals(item()?['Urgencia']?['Value'],'Urgente'))"
+          },
+          "runAfter": {
+            "Urgentes": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Hay_vencidas": {
+          "type": "If",
+          "expression": {
+            "greater": [
+              "@length(body('Vencidas'))",
+              0
+            ]
+          },
+          "actions": {
+            "Cada_urgente": {
+              "type": "Foreach",
+              "foreach": "@body('Urgentes')",
+              "actions": {
+                "Fila_urgente": {
+                  "type": "AppendToStringVariable",
+                  "inputs": {
+                    "name": "Filas",
+                    "value": "<tr><td style=\"padding:6px 8px;border-bottom:1px solid #e5e7eb\">@{items('Cada_urgente')?['Codigo']}</td><td style=\"padding:6px 8px;border-bottom:1px solid #e5e7eb\">@{items('Cada_urgente')?['Title']}</td><td style=\"padding:6px 8px;border-bottom:1px solid #e5e7eb\">@{items('Cada_urgente')?['Solicitante_Nombre']}</td><td style=\"padding:6px 8px;border-bottom:1px solid #e5e7eb\">@{items('Cada_urgente')?['Urgencia']?['Value']}</td><td style=\"padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right\">@{div(sub(ticks(utcNow()), ticks(coalesce(items('Cada_urgente')?['Fecha_Envio'], items('Cada_urgente')?['Created']))), 864000000000)}</td></tr>"
+                  },
+                  "runAfter": {}
+                },
+                "Sumar_urgente": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                      "connectionName": "shared_sharepointonline",
+                      "operationId": "PatchItem"
+                    },
+                    "parameters": {
+                      "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                      "table": "767347d5-3d27-4b12-8360-f114d5c51002",
+                      "id": "@items('Cada_urgente')?['ID']",
+                      "item/Title": "@items('Cada_urgente')?['Title']",
+                      "item/Recordatorios_Enviados": "@add(coalesce(items('Cada_urgente')?['Recordatorios_Enviados'],0),1)"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {
+                    "Fila_urgente": [
+                      "Succeeded"
+                    ]
+                  }
+                }
+              },
+              "runtimeConfiguration": {
+                "concurrency": {
+                  "repetitions": 1
+                }
+              },
+              "runAfter": {}
+            },
+            "Cada_normal": {
+              "type": "Foreach",
+              "foreach": "@body('Normales')",
+              "actions": {
+                "Fila_normal": {
+                  "type": "AppendToStringVariable",
+                  "inputs": {
+                    "name": "Filas",
+                    "value": "<tr><td style=\"padding:6px 8px;border-bottom:1px solid #e5e7eb\">@{items('Cada_normal')?['Codigo']}</td><td style=\"padding:6px 8px;border-bottom:1px solid #e5e7eb\">@{items('Cada_normal')?['Title']}</td><td style=\"padding:6px 8px;border-bottom:1px solid #e5e7eb\">@{items('Cada_normal')?['Solicitante_Nombre']}</td><td style=\"padding:6px 8px;border-bottom:1px solid #e5e7eb\">@{items('Cada_normal')?['Urgencia']?['Value']}</td><td style=\"padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right\">@{div(sub(ticks(utcNow()), ticks(coalesce(items('Cada_normal')?['Fecha_Envio'], items('Cada_normal')?['Created']))), 864000000000)}</td></tr>"
+                  },
+                  "runAfter": {}
+                },
+                "Sumar_normal": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                      "connectionName": "shared_sharepointonline",
+                      "operationId": "PatchItem"
+                    },
+                    "parameters": {
+                      "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                      "table": "767347d5-3d27-4b12-8360-f114d5c51002",
+                      "id": "@items('Cada_normal')?['ID']",
+                      "item/Title": "@items('Cada_normal')?['Title']",
+                      "item/Recordatorios_Enviados": "@add(coalesce(items('Cada_normal')?['Recordatorios_Enviados'],0),1)"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {
+                    "Fila_normal": [
+                      "Succeeded"
+                    ]
+                  }
+                }
+              },
+              "runtimeConfiguration": {
+                "concurrency": {
+                  "repetitions": 1
+                }
+              },
+              "runAfter": {
+                "Cada_urgente": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Correo_recordatorio": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+                  "connectionName": "shared_office365",
+                  "operationId": "SendEmailV2"
+                },
+                "parameters": {
+                  "emailMessage/To": "@{if(equals(parameters('ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)'),'SI'), parameters('ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)'), coalesce(first(body('Filtrar_Gerente'))?['Email'], parameters('ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)')))}",
+                  "emailMessage/Subject": "@{if(equals(parameters('ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)'),'SI'),'[PRUEBA] ','')}Tiene @{length(body('Vencidas'))} documento(s) pendiente(s) de firma",
+                  "emailMessage/Body": "<div style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2937;max-width:720px\"><div style=\"background:#00539B;color:#fff;padding:14px 18px;font-size:16px;font-weight:600\">Documentos pendientes de firma</div><div style=\"padding:16px 18px;border:1px solid #d6dde6;border-top:0\"><p style=\"margin:0 0 12px\">Estos documentos llevan @{outputs('Dias')} día(s) o más esperando su firma. Los urgentes van primero.</p><table style=\"border-collapse:collapse;width:100%\"><tr style=\"background:#f3f6f9;font-weight:600\"><td style=\"padding:6px 8px\">Código</td><td style=\"padding:6px 8px\">Título</td><td style=\"padding:6px 8px\">Solicitante</td><td style=\"padding:6px 8px\">Urgencia</td><td style=\"padding:6px 8px;text-align:right\">Días</td></tr>@{variables('Filas')}</table><p style=\"margin:16px 0 0;color:#6b7280;font-size:12px\">Firma de Documentos · INI. Correo automático, no responder.</p></div></div>",
+                  "emailMessage/Importance": "Normal",
+                  "emailMessage/Cc": "@{if(equals(parameters('ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)'),'SI'), '', coalesce(first(body('Filtrar_Secretaria'))?['Email'], parameters('ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)')))}"
+                },
+                "authentication": "@parameters('$authentication')"
+              },
+              "runAfter": {
+                "Cada_normal": [
+                  "Succeeded"
+                ]
+              }
+            }
+          },
+          "else": {
+            "actions": {}
+          },
+          "runAfter": {
+            "Normales": [
+              "Succeeded"
+            ]
+          }
+        }
+      }
+    },
+    "templateName": ""
+  },
+  "schemaVersion": "1.0.0.0"
+}

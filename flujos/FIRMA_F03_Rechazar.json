@@ -1,0 +1,471 @@
+{
+  "properties": {
+    "connectionReferences": {
+      "shared_sharepointonline": {
+        "runtimeSource": "embedded",
+        "connection": {
+          "connectionReferenceLogicalName": "ini_firma_sharepoint"
+        },
+        "api": {
+          "name": "shared_sharepointonline"
+        }
+      },
+      "shared_office365": {
+        "runtimeSource": "embedded",
+        "connection": {
+          "connectionReferenceLogicalName": "ini_firma_outlook"
+        },
+        "api": {
+          "name": "shared_office365"
+        }
+      }
+    },
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        },
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        },
+        "ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)": {
+          "defaultValue": "SIN_CONFIGURAR",
+          "type": "String",
+          "metadata": {
+            "schemaName": "ini_FIRMA_SitioUrl"
+          }
+        },
+        "ini_FIRMA_BibliotecaId (ini_FIRMA_BibliotecaId)": {
+          "defaultValue": "SIN_CONFIGURAR",
+          "type": "String",
+          "metadata": {
+            "schemaName": "ini_FIRMA_BibliotecaId"
+          }
+        },
+        "ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)": {
+          "defaultValue": "SIN_CONFIGURAR",
+          "type": "String",
+          "metadata": {
+            "schemaName": "ini_FIRMA_ModoPrueba"
+          }
+        },
+        "ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)": {
+          "defaultValue": "SIN_CONFIGURAR",
+          "type": "String",
+          "metadata": {
+            "schemaName": "ini_FIRMA_CorreoSoporte"
+          }
+        }
+      },
+      "triggers": {
+        "Al_crear_o_modificar_solicitud": {
+          "type": "OpenApiConnection",
+          "recurrence": {
+            "interval": 1,
+            "frequency": "Minute"
+          },
+          "splitOn": "@triggerOutputs()?['body/value']",
+          "conditions": [
+            {
+              "expression": "@and(equals(triggerOutputs()?['body/Accion'],'Rechazar'), empty(triggerOutputs()?['body/Accion_Fecha']), equals(triggerOutputs()?['body/Estado/Value'],'Pendiente de firma'))"
+            }
+          ],
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "GetOnUpdatedItems"
+            },
+            "parameters": {
+              "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+              "table": "767347d5-3d27-4b12-8360-f114d5c51002"
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        }
+      },
+      "actions": {
+        "Marcar_accion_tomada": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "PatchItem"
+            },
+            "parameters": {
+              "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+              "table": "767347d5-3d27-4b12-8360-f114d5c51002",
+              "id": "@triggerOutputs()?['body/ID']",
+              "item/Title": "@triggerOutputs()?['body/Title']",
+              "item/Accion_Fecha": "@utcNow()"
+            },
+            "authentication": "@parameters('$authentication')"
+          },
+          "runAfter": {}
+        },
+        "Leer_roles": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "GetItems"
+            },
+            "parameters": {
+              "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+              "table": "41a2b1f3-f830-4b76-9d11-a7d466020d5a",
+              "$filter": "Activo eq 1",
+              "$orderby": "Title",
+              "$top": 50
+            },
+            "authentication": "@parameters('$authentication')"
+          },
+          "runAfter": {
+            "Marcar_accion_tomada": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Filtrar_Gerente": {
+          "type": "Query",
+          "inputs": {
+            "from": "@body('Leer_roles')?['value']",
+            "where": "@equals(item()?['Title'],'Gerente')"
+          },
+          "runAfter": {
+            "Leer_roles": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Filtrar_Secretaria": {
+          "type": "Query",
+          "inputs": {
+            "from": "@body('Leer_roles')?['value']",
+            "where": "@equals(item()?['Title'],'Secretaria')"
+          },
+          "runAfter": {
+            "Filtrar_Gerente": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Try": {
+          "type": "Scope",
+          "actions": {
+            "Firmantes_autorizados": {
+              "type": "Query",
+              "inputs": {
+                "from": "@body('Leer_roles')?['value']",
+                "where": "@and(or(equals(item()?['Title'],'Gerente'),equals(item()?['Title'],'Suplente')), equals(toLower(coalesce(item()?['Email'],'')), toLower(coalesce(triggerOutputs()?['body/Editor/Email'],''))))"
+              },
+              "runAfter": {}
+            },
+            "Validar_rechazo": {
+              "type": "If",
+              "expression": {
+                "and": [
+                  {
+                    "greater": [
+                      "@length(body('Firmantes_autorizados'))",
+                      0
+                    ]
+                  },
+                  {
+                    "not": {
+                      "equals": [
+                        "@trim(coalesce(triggerOutputs()?['body/Motivo_Rechazo'],''))",
+                        ""
+                      ]
+                    }
+                  }
+                ]
+              },
+              "actions": {
+                "Pasar_a_rechazado": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                      "connectionName": "shared_sharepointonline",
+                      "operationId": "PatchItem"
+                    },
+                    "parameters": {
+                      "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                      "table": "767347d5-3d27-4b12-8360-f114d5c51002",
+                      "id": "@triggerOutputs()?['body/ID']",
+                      "item/Title": "@triggerOutputs()?['body/Title']",
+                      "item/Estado/Value": "Rechazado"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {}
+                },
+                "Bitacora_rechazado": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                      "connectionName": "shared_sharepointonline",
+                      "operationId": "PostItem"
+                    },
+                    "parameters": {
+                      "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                      "table": "05d9b67a-a005-4826-ad13-67a622f834aa",
+                      "item/Title": "Rechazado",
+                      "item/Solicitud_ID_Num": "@triggerOutputs()?['body/ID']",
+                      "item/Codigo": "@triggerOutputs()?['body/Codigo']",
+                      "item/Evento": "Rechazado",
+                      "item/Actor_Email": "@toLower(coalesce(triggerOutputs()?['body/Editor/Email'],''))",
+                      "item/Detalle": "@triggerOutputs()?['body/Motivo_Rechazo']",
+                      "item/Fecha": "@utcNow()"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {
+                    "Pasar_a_rechazado": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Correo_solicitante": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+                      "connectionName": "shared_office365",
+                      "operationId": "SendEmailV2"
+                    },
+                    "parameters": {
+                      "emailMessage/To": "@{if(equals(parameters('ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)'),'SI'), parameters('ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)'), coalesce(triggerOutputs()?['body/Solicitante_Email'], triggerOutputs()?['body/Solicitante/Email'], triggerOutputs()?['body/Author/Email']))}",
+                      "emailMessage/Subject": "@{if(equals(parameters('ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)'),'SI'),'[PRUEBA] ','')}Documento devuelto: @{triggerOutputs()?['body/Title']} (@{triggerOutputs()?['body/Codigo']})",
+                      "emailMessage/Body": "<div style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2937;max-width:640px\">\n<div style=\"background:#00539B;color:#fff;padding:14px 18px;font-size:16px;font-weight:600\">El documento fue devuelto sin firmar</div>\n<div style=\"padding:16px 18px;border:1px solid #d6dde6;border-top:0\">\n<p style=\"margin:0 0 12px\">El gerente devolvió el documento con el siguiente motivo.</p>\n<table style=\"border-collapse:collapse;width:100%\"><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Código</td><td style=\"padding:6px 8px\">@{triggerOutputs()?['body/Codigo']}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Título</td><td style=\"padding:6px 8px\">@{triggerOutputs()?['body/Title']}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Solicitante</td><td style=\"padding:6px 8px\">@{coalesce(triggerOutputs()?['body/Solicitante_Nombre'], triggerOutputs()?['body/Solicitante/DisplayName'], triggerOutputs()?['body/Author/DisplayName'])}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Motivo</td><td style=\"padding:6px 8px\">@{triggerOutputs()?['body/Motivo_Rechazo']}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Devuelto por</td><td style=\"padding:6px 8px\">@{triggerOutputs()?['body/Editor/DisplayName']}</td></tr></table>\n\n<p style=\"margin:16px 0 0;color:#6b7280;font-size:12px\">Firma de Documentos · INI. Correo automático, no responder.</p>\n</div></div>",
+                      "emailMessage/Importance": "Normal",
+                      "emailMessage/Cc": "@{if(equals(parameters('ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)'),'SI'), '', coalesce(first(body('Filtrar_Secretaria'))?['Email'], parameters('ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)')))}"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {
+                    "Bitacora_rechazado": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Correo_gerente": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+                      "connectionName": "shared_office365",
+                      "operationId": "SendEmailV2"
+                    },
+                    "parameters": {
+                      "emailMessage/To": "@{if(equals(parameters('ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)'),'SI'), parameters('ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)'), triggerOutputs()?['body/Editor/Email'])}",
+                      "emailMessage/Subject": "@{if(equals(parameters('ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)'),'SI'),'[PRUEBA] ','')}Devolución registrada: @{triggerOutputs()?['body/Codigo']}",
+                      "emailMessage/Body": "<div style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2937;max-width:640px\">\n<div style=\"background:#00539B;color:#fff;padding:14px 18px;font-size:16px;font-weight:600\">Devolución registrada</div>\n<div style=\"padding:16px 18px;border:1px solid #d6dde6;border-top:0\">\n<p style=\"margin:0 0 12px\">Se avisó al solicitante y a la secretaria.</p>\n<table style=\"border-collapse:collapse;width:100%\"><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Código</td><td style=\"padding:6px 8px\">@{triggerOutputs()?['body/Codigo']}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Título</td><td style=\"padding:6px 8px\">@{triggerOutputs()?['body/Title']}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Solicitante</td><td style=\"padding:6px 8px\">@{coalesce(triggerOutputs()?['body/Solicitante_Nombre'], triggerOutputs()?['body/Solicitante/DisplayName'], triggerOutputs()?['body/Author/DisplayName'])}</td></tr></table>\n\n<p style=\"margin:16px 0 0;color:#6b7280;font-size:12px\">Firma de Documentos · INI. Correo automático, no responder.</p>\n</div></div>",
+                      "emailMessage/Importance": "Normal"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {
+                    "Correo_solicitante": [
+                      "Succeeded"
+                    ]
+                  }
+                }
+              },
+              "else": {
+                "actions": {
+                  "Motivo_invalido": {
+                    "type": "Compose",
+                    "inputs": "@if(equals(length(body('Firmantes_autorizados')),0), concat('Acción no autorizada: ', toLower(coalesce(triggerOutputs()?['body/Editor/Email'],'')), ' no es gerente ni suplente activo.'), 'Falta el motivo de rechazo.')",
+                    "runAfter": {}
+                  },
+                  "Devolver_a_pendiente": {
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "host": {
+                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                        "connectionName": "shared_sharepointonline",
+                        "operationId": "PatchItem"
+                      },
+                      "parameters": {
+                        "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                        "table": "767347d5-3d27-4b12-8360-f114d5c51002",
+                        "id": "@triggerOutputs()?['body/ID']",
+                        "item/Title": "@triggerOutputs()?['body/Title']",
+                        "item/Accion": "Revisar",
+                        "item/Error_Detalle": "@outputs('Motivo_invalido')"
+                      },
+                      "authentication": "@parameters('$authentication')"
+                    },
+                    "runAfter": {
+                      "Motivo_invalido": [
+                        "Succeeded"
+                      ]
+                    }
+                  },
+                  "Bitacora_invalido": {
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "host": {
+                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                        "connectionName": "shared_sharepointonline",
+                        "operationId": "PostItem"
+                      },
+                      "parameters": {
+                        "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                        "table": "05d9b67a-a005-4826-ad13-67a622f834aa",
+                        "item/Title": "Rechazo no válido",
+                        "item/Solicitud_ID_Num": "@triggerOutputs()?['body/ID']",
+                        "item/Codigo": "@triggerOutputs()?['body/Codigo']",
+                        "item/Evento": "Rechazo no válido",
+                        "item/Actor_Email": "@toLower(coalesce(triggerOutputs()?['body/Editor/Email'],''))",
+                        "item/Detalle": "@outputs('Motivo_invalido')",
+                        "item/Fecha": "@utcNow()"
+                      },
+                      "authentication": "@parameters('$authentication')"
+                    },
+                    "runAfter": {
+                      "Devolver_a_pendiente": [
+                        "Succeeded"
+                      ]
+                    }
+                  },
+                  "Correo_soporte_invalido": {
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "host": {
+                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+                        "connectionName": "shared_office365",
+                        "operationId": "SendEmailV2"
+                      },
+                      "parameters": {
+                        "emailMessage/To": "@{parameters('ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)')}",
+                        "emailMessage/Subject": "[FIRMA] Rechazo no válido · @{triggerOutputs()?['body/Codigo']}",
+                        "emailMessage/Body": "<div style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2937;max-width:640px\">\n<div style=\"background:#00539B;color:#fff;padding:14px 18px;font-size:16px;font-weight:600\">Rechazo no válido</div>\n<div style=\"padding:16px 18px;border:1px solid #d6dde6;border-top:0\">\n<p style=\"margin:0 0 12px\">@{outputs('Motivo_invalido')}</p>\n<table style=\"border-collapse:collapse;width:100%\"><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Código</td><td style=\"padding:6px 8px\">@{triggerOutputs()?['body/Codigo']}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Título</td><td style=\"padding:6px 8px\">@{triggerOutputs()?['body/Title']}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Solicitante</td><td style=\"padding:6px 8px\">@{coalesce(triggerOutputs()?['body/Solicitante_Nombre'], triggerOutputs()?['body/Solicitante/DisplayName'], triggerOutputs()?['body/Author/DisplayName'])}</td></tr></table>\n\n<p style=\"margin:16px 0 0;color:#6b7280;font-size:12px\">Firma de Documentos · INI. Correo automático, no responder.</p>\n</div></div>",
+                        "emailMessage/Importance": "Normal"
+                      },
+                      "authentication": "@parameters('$authentication')"
+                    },
+                    "runAfter": {
+                      "Bitacora_invalido": [
+                        "Succeeded"
+                      ]
+                    }
+                  }
+                }
+              },
+              "runAfter": {
+                "Firmantes_autorizados": [
+                  "Succeeded"
+                ]
+              }
+            }
+          },
+          "runAfter": {
+            "Filtrar_Secretaria": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Catch": {
+          "type": "Scope",
+          "actions": {
+            "Detalle_error": {
+              "type": "Compose",
+              "inputs": "@substring(string(result('Try')), 0, min(length(string(result('Try'))), 3500))",
+              "runAfter": {}
+            },
+            "Marcar_error": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "connectionName": "shared_sharepointonline",
+                  "operationId": "PatchItem"
+                },
+                "parameters": {
+                  "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                  "table": "767347d5-3d27-4b12-8360-f114d5c51002",
+                  "id": "@triggerOutputs()?['body/ID']",
+                  "item/Title": "@triggerOutputs()?['body/Title']",
+                  "item/Accion": "Error",
+                  "item/Error_Detalle": "@outputs('Detalle_error')"
+                },
+                "authentication": "@parameters('$authentication')"
+              },
+              "runAfter": {
+                "Detalle_error": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Bitacora_error": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "connectionName": "shared_sharepointonline",
+                  "operationId": "PostItem"
+                },
+                "parameters": {
+                  "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                  "table": "05d9b67a-a005-4826-ad13-67a622f834aa",
+                  "item/Title": "Error en F03 Rechazar",
+                  "item/Solicitud_ID_Num": "@triggerOutputs()?['body/ID']",
+                  "item/Codigo": "@coalesce(triggerOutputs()?['body/Codigo'],'')",
+                  "item/Evento": "Error en F03 Rechazar",
+                  "item/Actor_Email": "@toLower(coalesce(triggerOutputs()?['body/Editor/Email'],''))",
+                  "item/Detalle": "@outputs('Detalle_error')",
+                  "item/Fecha": "@utcNow()"
+                },
+                "authentication": "@parameters('$authentication')"
+              },
+              "runAfter": {
+                "Marcar_error": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Correo_soporte": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+                  "connectionName": "shared_office365",
+                  "operationId": "SendEmailV2"
+                },
+                "parameters": {
+                  "emailMessage/To": "@{parameters('ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)')}",
+                  "emailMessage/Subject": "[FIRMA] Error en F03 Rechazar · solicitud @{triggerOutputs()?['body/ID']}",
+                  "emailMessage/Body": "<div style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2937;max-width:640px\">\n<div style=\"background:#00539B;color:#fff;padding:14px 18px;font-size:16px;font-weight:600\">Error en F03 Rechazar</div>\n<div style=\"padding:16px 18px;border:1px solid #d6dde6;border-top:0\">\n<p style=\"margin:0 0 12px\">El flujo falló. Detalle técnico:</p>\n<table style=\"border-collapse:collapse;width:100%\"><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Solicitud</td><td style=\"padding:6px 8px\">@{triggerOutputs()?['body/ID']} · @{triggerOutputs()?['body/Title']}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Ejecución</td><td style=\"padding:6px 8px\">@{workflow()?['run']?['name']}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Detalle</td><td style=\"padding:6px 8px\">@{outputs('Detalle_error')}</td></tr></table>\n\n<p style=\"margin:16px 0 0;color:#6b7280;font-size:12px\">Firma de Documentos · INI. Correo automático, no responder.</p>\n</div></div>",
+                  "emailMessage/Importance": "Normal"
+                },
+                "authentication": "@parameters('$authentication')"
+              },
+              "runAfter": {
+                "Bitacora_error": [
+                  "Succeeded"
+                ]
+              }
+            }
+          },
+          "runAfter": {
+            "Try": [
+              "Failed",
+              "TimedOut"
+            ]
+          }
+        }
+      }
+    },
+    "templateName": ""
+  },
+  "schemaVersion": "1.0.0.0"
+}

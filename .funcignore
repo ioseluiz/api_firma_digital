@@ -5,6 +5,10 @@ __pycache__
 *.pyc
 tests
 scripts
+flujos
+docs
+postman
+salida
 infra
 firmas_local
 local.settings.json

@@ -8,6 +8,40 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 
+def normalizar_base64(v):
+    """Acepta lo que mandan los conectores de Power Automate, no solo la cadena limpia:
+
+    - el objeto de contenido binario `{"$content-type": "...", "$content": "<base64>"}`
+      (lo que produce interpolar `contentBytes` o el cuerpo de «Obtener contenido del archivo»);
+    - un data URI `data:application/pdf;base64,<base64>`;
+    - base64 con saltos de línea o espacios.
+
+    El base64 doble (base64 de base64, cuando el flujo aplica `base64()` a un `contentBytes`
+    que ya era base64) se resuelve al decodificar, en `function_app._decodificar_pdf`.
+    """
+    if isinstance(v, dict):
+        contenido = v.get("$content")
+        if not isinstance(contenido, str):
+            raise ValueError("el objeto de pdf_base64 no trae '$content' con el archivo en base64")
+        v = contenido
+    if not isinstance(v, str):
+        raise ValueError("pdf_base64 debe ser una cadena base64 (o el objeto {'$content': ...})")
+    v = v.strip()
+    if v.startswith("data:"):
+        coma = v.find(",")
+        v = v[coma + 1:] if coma >= 0 else ""
+    if v.startswith("%PDF"):
+        raise ValueError(
+            "pdf_base64 trae el PDF decodificado, no en base64. En Power Automate interpolar un archivo "
+            "dentro de una cadena lo decodifica: use base64(triggerBody()?['Documento']?['contentBytes']) "
+            "o base64(body('Obtener_contenido_del_archivo'))"
+        )
+    return "".join(v.split())
+
+
+CODIGO_PATRON = r"^[A-Za-z0-9_.:/-]+$"
+
+
 class Firmante(BaseModel):
     nombre: str = Field(default="", max_length=120, description="Solo se usa si sello.texto es true: 'Ing. Juan Pérez'")
     cargo: str = Field(default="", max_length=160)
@@ -45,7 +79,7 @@ class Sello(BaseModel):
 
 class FirmaRequest(BaseModel):
     solicitud_id: int = Field(ge=0)
-    codigo: str = Field(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9_.:/-]+$")
+    codigo: str = Field(min_length=1, max_length=40, pattern=CODIGO_PATRON)
     pdf_base64: str = Field(min_length=1)
     firmante: Firmante
     fecha_firma: str = Field(description="Hora local de Panamá en ISO 8601, p. ej. 2026-11-18T14:05:12")
@@ -55,34 +89,7 @@ class FirmaRequest(BaseModel):
     @field_validator("pdf_base64", mode="before")
     @classmethod
     def _normalizar_base64(cls, v):
-        """Acepta lo que mandan los conectores de Power Automate, no solo la cadena limpia:
-
-        - el objeto de contenido binario `{"$content-type": "...", "$content": "<base64>"}`
-          (lo que produce interpolar `contentBytes` o el cuerpo de «Obtener contenido del archivo»);
-        - un data URI `data:application/pdf;base64,<base64>`;
-        - base64 con saltos de línea o espacios.
-
-        El base64 doble (base64 de base64, cuando el flujo aplica `base64()` a un `contentBytes`
-        que ya era base64) se resuelve al decodificar, en `function_app._decodificar_pdf`.
-        """
-        if isinstance(v, dict):
-            contenido = v.get("$content")
-            if not isinstance(contenido, str):
-                raise ValueError("el objeto de pdf_base64 no trae '$content' con el archivo en base64")
-            v = contenido
-        if not isinstance(v, str):
-            raise ValueError("pdf_base64 debe ser una cadena base64 (o el objeto {'$content': ...})")
-        v = v.strip()
-        if v.startswith("data:"):
-            coma = v.find(",")
-            v = v[coma + 1:] if coma >= 0 else ""
-        if v.startswith("%PDF"):
-            raise ValueError(
-                "pdf_base64 trae el PDF decodificado, no en base64. En Power Automate interpolar un archivo "
-                "dentro de una cadena lo decodifica: use base64(triggerBody()?['Documento']?['contentBytes']) "
-                "o base64(body('Obtener_contenido_del_archivo'))"
-            )
-        return "".join(v.split())
+        return normalizar_base64(v)
 
     @field_validator("fecha_firma")
     @classmethod
@@ -111,6 +118,35 @@ class FirmaResponse(BaseModel):
     duracion_ms: int
 
 
+class VisorRequest(BaseModel):
+    """Lo que F01 manda para publicar el original en el visor."""
+
+    solicitud_id: int = Field(ge=0)
+    codigo: str = Field(min_length=1, max_length=40, pattern=CODIGO_PATRON)
+    pdf_base64: str = Field(min_length=1)
+
+    @field_validator("pdf_base64", mode="before")
+    @classmethod
+    def _normalizar_base64(cls, v):
+        return normalizar_base64(v)
+
+
+class VisorResponse(BaseModel):
+    ok: Literal[True] = True
+    codigo: str
+    url_visor: str = Field(description="URL SAS de solo lectura; el control PDF de Power Apps la abre tal cual")
+    vence_utc: str
+    blob: str
+    bytes: int
+    dias_vigencia: int
+
+
+class VisorBorradoResponse(BaseModel):
+    ok: Literal[True] = True
+    codigo: str
+    borrado: bool = Field(description="false si no había nada que borrar; nunca es un error")
+
+
 class ErrorResponse(BaseModel):
     ok: Literal[False] = False
     error: str
@@ -122,6 +158,7 @@ class SaludResponse(BaseModel):
     ok: bool
     version: str
     origen_imagenes: str
+    visor: str = Field(default="ninguno", description="blob | ninguno")
     imagen_por_defecto: str
     imagen_por_defecto_ok: bool
     hora_servidor_utc: str

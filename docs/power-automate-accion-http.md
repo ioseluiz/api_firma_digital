@@ -1,7 +1,9 @@
-# Llamar al API de firma desde Power Automate (flujo F02 «Aprobar y firmar»)
+# Llamar al API de firma desde Power Automate (flujos F01 y F02)
 
-Configuración exacta de las acciones del flujo que hablan con el API. Para el resto del flujo
-(disparador, verificación del `Editor`, correos) ver `../../PLAN.md` §7.3.
+Configuración exacta de las acciones que hablan con el API. **El flujo F02 real está como código en
+`../flujos/FIRMA_F02_Aprobar_y_firmar.json` (generado por `flujos/generar_f02.py`)**; esta página explica
+las decisiones y sirve para leerlo. Para el resto (disparador, verificación del `Editor`, correos) ver
+`../../PLAN.md` §7.3 y `../flujos/README.md`.
 
 Requisitos: licencia Power Automate Premium para el dueño del flujo (la acción HTTP es premium) y
 que la política DLP del ambiente permita el conector HTTP junto con SharePoint.
@@ -10,11 +12,12 @@ que la política DLP del ambiente permita el conector HTTP junto con SharePoint.
 
 | Nombre | Tipo | Valor |
 |---|---|---|
-| `ini_FIRMA_ApiUrl` | Texto | `https://func-ini-firma-dev.azurewebsites.net/api/v1/firmar` |
-| `ini_FIRMA_ApiKey` | **Secreto** | clave de función (`az functionapp keys list -g rg-ini-firma-dev -n func-ini-firma-dev`) |
-| `ini_FIRMA_ImagenId` | Texto | `gerente.png` (o leerlo de `FIRMA_Roles.Imagen_Firma_Id`) |
+| `ini_FIRMA_ApiUrl` | Texto | **Base** `https://func-ini-firma-dev.azurewebsites.net/api/v1` (F01 llama `…/visor`, F02 `…/firmar` y `…/visor/{codigo}`) |
+| `ini_FIRMA_ApiKey` | Texto | clave de función **dedicada** `powerautomate` (`az functionapp keys set … --key-name powerautomate`; se fija con `flujos/variables_entorno.py --fijar ini_FIRMA_ApiKey --desde-az`). El tipo Secreto exigiría Key Vault. |
+| `ini_FIRMA_AppUrl` | Texto | URL de reproducción de la app INI Firma; `SIN_CONFIGURAR` hasta tenerla. Los correos enlazan a ella. |
 
-Mientras no exista la solución, valen variables del flujo (`Inicializar variable`) con los mismos nombres.
+La imagen de firma sale de `FIRMA_Roles.Imagen_Firma_Id` del firmante (Gerente o Suplente), con
+`gerente.png` como respaldo para el Gerente.
 
 ## 1. Obtener el PDF original
 
@@ -35,8 +38,8 @@ Antes de integrar, conviene probar el API con un flujo aislado: `prueba-power-au
 | Campo | Valor |
 |---|---|
 | Método | `POST` |
-| URI | `@{parameters('ini_FIRMA_ApiUrl')}` (o la variable del flujo) |
-| Encabezados | `Content-Type`: `application/json` · `x-functions-key`: `@{parameters('ini_FIRMA_ApiKey')}` · `X-Correlation-Id`: `@{workflow()?['run']?['name']}` |
+| URI | `@{parameters('ini_FIRMA_ApiUrl (ini_FIRMA_ApiUrl)')}/firmar` |
+| Encabezados | `Content-Type`: `application/json` · `x-functions-key`: `@{parameters('ini_FIRMA_ApiKey (ini_FIRMA_ApiKey)')}` · `X-Correlation-Id`: `@{workflow()?['run']?['name']}` |
 | Autenticación | Ninguna (la clave va en la cabecera) |
 | Configuración → Tiempo de espera | `PT2M` |
 | Configuración → Directiva de reintentos | Exponencial, 4 reintentos, intervalo `PT20S` |
@@ -148,3 +151,13 @@ Al solicitante nunca se le avisa desde el Catch: para él la solicitud sigue pen
 Desde Postman con la colección de `../postman/` y un entorno generado con
 `--base-url https://func-ini-firma-dev.azurewebsites.net --clave <clave> --nombre dev`. Si la
 colección pasa, el flujo solo tiene que reproducir la petición 02.
+
+## Visor en F01 (`Publicar_visor`)
+
+Tras crear `Original.pdf`, F01 llama `POST @{ApiUrl}/visor` con `{"solicitud_id", "codigo",
+"pdf_base64": base64(body('Contenido_memo'))}` y guarda `body.url_visor` en `Url_Visor` de la
+solicitud. La acción corre con 2 reintentos y 1 minuto de espera, y **`Cada_anexo` continúa aunque
+falle** (`runAfter: Succeeded, Failed, TimedOut`): sin visor la app muestra «Abrir en SharePoint».
+La bitácora anota `visor=ok` o `visor=no disponible`. F02 borra el blob con `DELETE @{ApiUrl}/visor/{codigo}`
+después de firmar, también sin bloquear la ejecución si falla. La URL SAS vale 7 días como máximo
+(clave de delegación de usuario); ver README del API.

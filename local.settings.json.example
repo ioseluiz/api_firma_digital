@@ -7,6 +7,9 @@
     "FIRMAS_CARPETA": "firmas_local",
     "FIRMAS_IMAGEN_POR_DEFECTO": "gerente.png",
     "FIRMA_MAX_PDF_MB": "25",
+    "VISOR_ORIGEN": "ninguno",
+    "VISOR_CONTENEDOR": "visor",
+    "VISOR_DIAS": "7",
     "FIRMA_TEXTO_SELLO": "Firmado electrónicamente por {nombre}{cargo} · {fecha} · {codigo} · Verif. {verif}"
   }
 }

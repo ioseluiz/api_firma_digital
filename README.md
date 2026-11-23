@@ -13,16 +13,18 @@ en la respuesta. El servicio no guarda documentos ni registra su contenido.
 
 ```
 api-ini-firma/
-├─ function_app.py           rutas HTTP: POST v1/firmar, GET v1/salud
+├─ function_app.py           rutas HTTP: POST v1/firmar, POST/GET/DELETE v1/visor, GET v1/salud
 ├─ firma/
 │  ├─ estampar.py            lógica pura: bytes + parámetros → bytes (PyMuPDF)
 │  ├─ modelos.py             contrato JSON (pydantic)
 │  ├─ imagenes.py            origen de las imágenes de firma: carpeta local o Blob privado
+│  ├─ visor.py               copia temporal del original en Blob + URL SAS para el visor de la app
 │  └─ errores.py             códigos de error ↔ HTTP
 ├─ tests/                    pytest; los PDFs y la imagen se generan en memoria
 ├─ scripts/
 │  ├─ generar_firma_prueba.py  crea firmas_local/*.png de PRUEBA
 │  └─ firmar_local.py          cliente CLI para probar el API con un PDF real
+├─ flujos/                   flujos de Power Automate como código (F01–F05) y scripts para subirlos
 ├─ infra/main.bicep          Function (Flex Consumption), Storage, Key Vault, App Insights, roles
 ├─ host.json · requirements.txt · local.settings.json.example
 └─ firmas_local/             (ignorada por git) imágenes de firma para desarrollo
@@ -205,10 +207,35 @@ Errores (siempre JSON):
 | 422 | `ancla_no_encontrada` | Se pidió ancla con `si_no_hay_ancla: "error"` y no aparece. |
 | 500 | `error_interno` | Buscar el `correlation_id` en Application Insights. |
 
+### `POST /api/v1/visor` · `GET|DELETE /api/v1/visor/{codigo}`
+
+El control PDF de Power Apps no abre URLs autenticadas de SharePoint. F01 manda aquí el original y
+recibe una URL SAS de solo lectura que la app sí puede cargar; F02 la borra al firmar.
+
+```json
+POST /api/v1/visor
+{ "solicitud_id": 12, "codigo": "FIRMA-2026-000012", "pdf_base64": "<misma tolerancia que /firmar>" }
+
+200
+{ "ok": true, "codigo": "FIRMA-2026-000012",
+  "url_visor": "https://stinifirmadev.blob.core.windows.net/visor/FIRMA-2026-000012.pdf?sv=…&sp=r&se=…&sig=…",
+  "vence_utc": "2026-11-30T13:05:00+00:00", "blob": "FIRMA-2026-000012.pdf", "bytes": 1834221, "dias_vigencia": 7 }
+```
+
+- `GET /api/v1/visor/{codigo}` devuelve una URL SAS nueva sobre el blob ya publicado (404
+  `visor_no_encontrado` si no existe). `DELETE` lo borra y responde `{"borrado": true|false}`; nunca
+  es un error que no existiera.
+- **Vigencia máxima: 7 días.** La cuenta tiene la clave compartida deshabilitada, así que el SAS se
+  firma con una clave de delegación de usuario (identidad administrada), y Azure la limita a 7 días.
+  `VISOR_DIAS` se recorta a ese tope. Si una solicitud espera más, la app ofrece «Abrir en SharePoint».
+- Es idempotente (reintentos de F01 sobrescriben). Los blobs que queden los borra la política de
+  ciclo de vida del contenedor a los 30 días.
+- `503 visor_no_disponible` cuando `VISOR_ORIGEN=ninguno` (desarrollo local sin Azure).
+
 ### `GET /api/v1/salud`
 
 ```json
-{ "ok": true, "version": "0.1.0", "origen_imagenes": "blob", "imagen_por_defecto": "gerente.png",
+{ "ok": true, "version": "0.3.0", "origen_imagenes": "blob", "visor": "blob", "imagen_por_defecto": "gerente.png",
   "imagen_por_defecto_ok": true, "hora_servidor_utc": "2026-11-19T15:02:10+00:00" }
 ```
 
@@ -239,6 +266,9 @@ Tiempo típico: menos de 1 s para 50 páginas. La imagen se cachea en memoria 10
 | `FIRMAS_IMAGEN_POR_DEFECTO` | `gerente.png` | La que comprueba `/salud`. |
 | `FIRMA_MAX_PDF_MB` | `25` | Límite del PDF decodificado. |
 | `FIRMA_TEXTO_SELLO` | plantilla | Marcadores: `{nombre}`, `{cargo}` (ya lleva la coma), `{fecha}`, `{codigo}`, `{verif}`. |
+| `VISOR_ORIGEN` | `ninguno` / `blob` | Visor de la app. Con `blob` usa la misma cuenta de `FIRMAS_STORAGE_URL`. |
+| `VISOR_CONTENEDOR` | `visor` | Contenedor privado de las copias temporales. |
+| `VISOR_DIAS` | `7` | Vigencia de la URL SAS; tope real 7 (clave de delegación de usuario). |
 
 ## Despliegue en Azure
 
@@ -261,9 +291,9 @@ anteponer su carpeta (`$env:PATH = "$env:USERPROFILE\.venv-azcli\Scripts;$env:PA
 
 **Desplegado en `dev` el 2026-11-23** en la suscripción Visual Studio Professional del autor
 (tenant `pancanal.onmicrosoft.com`, grupo `rg-ini-firma-dev`, eastus2). URL:
-`https://func-ini-firma-dev.azurewebsites.net/api/v1/firmar`. La colección de Postman pasa completa
-contra Azure (9 peticiones, 23 aserciones; ~90 ms por firma con el host caliente, hasta 5 s en
-arranque en frío).
+`https://func-ini-firma-dev.azurewebsites.net/api/v1` (`/firmar`, `/visor`, `/salud`). La colección de
+Postman pasa completa contra Azure (~90 ms por firma con el host caliente, hasta 5 s en arranque en
+frío). El 2026-11-23 se desplegó la versión 0.3.0 con el visor (contenedor `visor`, CORS, ciclo de vida).
 
 Azure CLI **sin permisos de administrador** (el MSI pide elevación; pip instala por usuario en un
 entorno virtual aparte, y `az bicep install` descarga el compilador a `%USERPROFILE%\.azure\bin`):

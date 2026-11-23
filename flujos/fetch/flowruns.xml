@@ -1,0 +1,10 @@
+<fetch count="20">
+  <entity name="flowrun">
+    <attribute name="name" /><attribute name="status" /><attribute name="starttime" /><attribute name="endtime" /><attribute name="errormessage" />
+    <link-entity name="workflow" from="workflowid" to="workflow" alias="w">
+      <attribute name="name" />
+      <filter><condition attribute="name" operator="like" value="FIRMA F0%" /></filter>
+    </link-entity>
+    <order attribute="starttime" descending="true" />
+  </entity>
+</fetch>

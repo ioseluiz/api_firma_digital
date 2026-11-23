@@ -1,8 +1,11 @@
 """Azure Functions (modelo v2, Python) — API de firma para la plataforma INI Firma.
 
 Rutas:
-  POST /api/v1/firmar   recibe PDF + firmante + posición; devuelve PDF firmado + hashes
-  GET  /api/v1/salud    versión, origen de imágenes y si la imagen por defecto es accesible
+  POST   /api/v1/firmar           recibe PDF + firmante + posición; devuelve PDF firmado + hashes
+  POST   /api/v1/visor            guarda el original en el contenedor del visor; devuelve URL SAS temporal
+  GET    /api/v1/visor/{codigo}   URL SAS nueva para un original ya publicado
+  DELETE /api/v1/visor/{codigo}   borra el original del visor (idempotente)
+  GET    /api/v1/salud            versión, origen de imágenes, visor y si la imagen por defecto es accesible
 
 Seguridad: en producción va detrás de Easy Auth (Entra ID, rol Firma.Ejecutar). Mientras tanto,
 `AuthLevel.FUNCTION` exige la clave de función en `x-functions-key`. Ver README.
@@ -15,6 +18,7 @@ import binascii
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -24,10 +28,14 @@ import azure.functions as func
 from pydantic import ValidationError
 
 from firma import VERSION
-from firma.errores import ErrorFirma, PdfDemasiadoGrande, PdfInvalido, PeticionInvalida
+from firma.errores import ErrorFirma, PdfDemasiadoGrande, PdfInvalido, PeticionInvalida, VisorNoEncontrado
 from firma.estampar import TEXTO_SELLO_POR_DEFECTO, ParametrosEstampado, estampar
 from firma.imagenes import OrigenImagenes, origen_desde_entorno
-from firma.modelos import ErrorResponse, FirmaRequest, FirmaResponse, SaludResponse
+from firma.modelos import (
+    CODIGO_PATRON, ErrorResponse, FirmaRequest, FirmaResponse, SaludResponse,
+    VisorBorradoResponse, VisorRequest, VisorResponse,
+)
+from firma.visor import AlmacenVisor, almacen_desde_entorno
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 log = logging.getLogger("ini.firma")
@@ -46,6 +54,30 @@ def reiniciar_origen() -> None:
     """Para pruebas: fuerza a releer las variables de entorno."""
     global _origen
     _origen = None
+
+
+_visor: Optional[AlmacenVisor] = None
+_CODIGO_RE = re.compile(CODIGO_PATRON)
+
+
+def obtener_visor() -> AlmacenVisor:
+    global _visor
+    if _visor is None:
+        _visor = almacen_desde_entorno()
+    return _visor
+
+
+def reiniciar_visor() -> None:
+    """Para pruebas: fuerza a releer las variables de entorno."""
+    global _visor
+    _visor = None
+
+
+def _codigo_de_ruta(req: func.HttpRequest) -> str:
+    codigo = (req.route_params.get("codigo") or "").strip()
+    if not codigo or len(codigo) > 40 or not _CODIGO_RE.match(codigo):
+        raise PeticionInvalida("El código de la ruta no es válido.")
+    return codigo
 
 
 def _max_pdf_bytes() -> int:
@@ -126,15 +158,85 @@ def salud(req: func.HttpRequest) -> func.HttpResponse:
         ok_img = True
     except Exception:
         ok_img = False
+    try:
+        visor = obtener_visor().nombre
+    except Exception as e:  # visor mal configurado: no tumba la salud, se reporta
+        log.exception("salud: visor no disponible")
+        visor = f"error: {e}"
     cuerpo = SaludResponse(
         ok=ok_img,
         version=VERSION,
         origen_imagenes=origen.nombre,
+        visor=visor,
         imagen_por_defecto=imagen,
         imagen_por_defecto_ok=ok_img,
         hora_servidor_utc=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     ).model_dump()
     return _json(cuerpo, 200 if ok_img else 503, correlation_id)
+
+
+@app.route(route="v1/visor", methods=["POST"])
+def visor_publicar(req: func.HttpRequest) -> func.HttpResponse:
+    correlation_id = req.headers.get("X-Correlation-Id") or str(uuid.uuid4())
+    codigo = "?"
+    try:
+        try:
+            cuerpo = req.get_json()
+        except ValueError as e:
+            raise PeticionInvalida("El cuerpo no es JSON válido.") from e
+        if not isinstance(cuerpo, dict):
+            raise PeticionInvalida("El cuerpo debe ser un objeto JSON.")
+        try:
+            peticion = VisorRequest.model_validate(cuerpo)
+        except ValidationError as e:
+            raise PeticionInvalida(_resumen_validacion(e)) from e
+        codigo = peticion.codigo
+
+        maximo = _max_pdf_bytes()
+        if len(peticion.pdf_base64) * 3 // 4 > maximo:
+            raise PdfDemasiadoGrande(f"El PDF supera el máximo de {maximo // (1024 * 1024)} MB.")
+        pdf = _decodificar_pdf(peticion.pdf_base64)
+        if len(pdf) > maximo:
+            raise PdfDemasiadoGrande(f"El PDF supera el máximo de {maximo // (1024 * 1024)} MB.")
+        if not pdf.lstrip().startswith(b"%PDF"):
+            raise PdfInvalido("El archivo no es un PDF (no empieza por %PDF).")
+
+        r = obtener_visor().publicar(peticion.codigo, pdf)
+        log.info("visor publicado codigo=%s solicitud=%s bytes=%d vence=%s corr=%s",
+                 peticion.codigo, peticion.solicitud_id, r.bytes, r.vence_utc.isoformat(), correlation_id)
+        respuesta = VisorResponse(codigo=peticion.codigo, url_visor=r.url, vence_utc=r.vence_utc.isoformat(),
+                                  blob=r.blob, bytes=r.bytes, dias_vigencia=r.dias)
+        return _json(respuesta.model_dump(), 200, correlation_id)
+    except ErrorFirma as e:
+        log.warning("visor rechazado codigo=%s error=%s http=%d msg=%s corr=%s", codigo, e.codigo, e.http, e.mensaje, correlation_id)
+        return _error(e, correlation_id)
+    except Exception:
+        log.exception("visor error interno codigo=%s corr=%s", codigo, correlation_id)
+        return _error(ErrorFirma("Error interno al publicar el visor; busque el correlation_id en Application Insights."), correlation_id)
+
+
+@app.route(route="v1/visor/{codigo}", methods=["GET", "DELETE"])
+def visor_codigo(req: func.HttpRequest) -> func.HttpResponse:
+    correlation_id = req.headers.get("X-Correlation-Id") or str(uuid.uuid4())
+    codigo = "?"
+    try:
+        codigo = _codigo_de_ruta(req)
+        visor = obtener_visor()
+        if req.method.upper() == "DELETE":
+            borrado = visor.borrar(codigo)
+            log.info("visor borrado codigo=%s existia=%s corr=%s", codigo, borrado, correlation_id)
+            return _json(VisorBorradoResponse(codigo=codigo, borrado=borrado).model_dump(), 200, correlation_id)
+        r = visor.renovar(codigo)
+        log.info("visor renovado codigo=%s vence=%s corr=%s", codigo, r.vence_utc.isoformat(), correlation_id)
+        respuesta = VisorResponse(codigo=codigo, url_visor=r.url, vence_utc=r.vence_utc.isoformat(),
+                                  blob=r.blob, bytes=r.bytes, dias_vigencia=r.dias)
+        return _json(respuesta.model_dump(), 200, correlation_id)
+    except ErrorFirma as e:
+        log.warning("visor rechazado codigo=%s error=%s http=%d msg=%s corr=%s", codigo, e.codigo, e.http, e.mensaje, correlation_id)
+        return _error(e, correlation_id)
+    except Exception:
+        log.exception("visor error interno codigo=%s corr=%s", codigo, correlation_id)
+        return _error(ErrorFirma("Error interno en el visor; busque el correlation_id en Application Insights."), correlation_id)
 
 
 @app.route(route="v1/firmar", methods=["POST"])

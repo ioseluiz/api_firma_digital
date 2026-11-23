@@ -38,3 +38,13 @@ class PdfDemasiadoGrande(ErrorFirma):
 class AnclaNoEncontrada(ErrorFirma):
     http = 422
     codigo = "ancla_no_encontrada"
+
+
+class VisorNoDisponible(ErrorFirma):
+    http = 503
+    codigo = "visor_no_disponible"
+
+
+class VisorNoEncontrado(ErrorFirma):
+    http = 404
+    codigo = "visor_no_encontrado"

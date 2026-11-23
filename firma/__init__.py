@@ -1,3 +1,3 @@
 """Servicio de firma: estampa la imagen de la firma del gerente en un PDF."""
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"

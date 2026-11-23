@@ -1,0 +1,11 @@
+<fetch>
+  <entity name="workflow">
+    <attribute name="name" /><attribute name="workflowid" /><attribute name="statecode" /><attribute name="statuscode" />
+    <attribute name="ownerid" /><attribute name="modifiedon" />
+    <filter>
+      <condition attribute="category" operator="eq" value="5" />
+      <condition attribute="name" operator="like" value="FIRMA F0%" />
+    </filter>
+    <order attribute="name" />
+  </entity>
+</fetch>

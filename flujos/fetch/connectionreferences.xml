@@ -1,0 +1,7 @@
+<fetch>
+  <entity name="connectionreference">
+    <attribute name="connectionreferencelogicalname" /><attribute name="connectionreferencedisplayname" />
+    <attribute name="connectorid" /><attribute name="connectionid" /><attribute name="ownerid" /><attribute name="connectionreferenceid" />
+    <filter><condition attribute="connectionreferencelogicalname" operator="like" value="ini_firma%" /></filter>
+  </entity>
+</fetch>
