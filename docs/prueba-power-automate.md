@@ -35,7 +35,9 @@ convertTimeZone(utcNow(), 'UTC', 'SA Pacific Standard Time', 'yyyy-MM-ddTHH:mm:s
 | Encabezados | `Content-Type` → `application/json` · `x-functions-key` → *la clave* · `X-Correlation-Id` → expresión `workflow()?['run']?['name']` |
 | Cuerpo | el JSON de abajo |
 
-Cuerpo. Los valores entre `@{...}` se ponen como **expresión** (pestaña *fx*), no como texto:
+Cuerpo. Se puede pegar tal cual en el campo *Body*: al guardar, el diseñador convierte cada
+`@{...}` en un token de expresión (se ven en morado). `Fecha_Firma` es el nombre de la acción
+«Redactar» del paso 2 con el espacio cambiado por `_`:
 
 ```json
 {
@@ -43,7 +45,7 @@ Cuerpo. Los valores entre `@{...}` se ponen como **expresión** (pestaña *fx*),
   "codigo": "PRUEBA-PA-001",
   "pdf_base64": "@{base64(triggerBody()?['file']?['contentBytes'])}",
   "firmante": { "imagen_id": "gerente.png" },
-  "fecha_firma": "@{outputs('Fecha_firma')}",
+  "fecha_firma": "@{outputs('Fecha_Firma')}",
   "posicion": {
     "pagina": 0,
     "ancla_texto": "@{coalesce(triggerBody()?['Ancla'], '')}",
@@ -66,7 +68,11 @@ Notas:
   decodifica dos veces.
 - Si el PDF viniera de «Obtener contenido del archivo» (OneDrive o SharePoint), es la misma idea:
   `base64(body('Obtener_contenido_del_archivo'))`.
-- Si no creaste la entrada `Ancla`, borra la línea de `ancla_texto` o deja `""`.
+- La entrada de texto `Ancla` se referencia como `triggerBody()?['text']`, por la misma regla
+  de nombres por tipo. Si no la creaste, borra la línea de `ancla_texto` o deja `""`.
+- No pegues valores de una ejecución anterior dentro de `@{...}` (p. ej.
+  `"@{2026-11-23T11:32:42}"`): el diseñador no deja guardar y dice «contains invalid
+  expression(s)». Dentro de `@{}` solo van expresiones.
 - En **Configuración** de la acción HTTP (menú `…`): tiempo de espera `PT2M`; directiva de
   reintentos *exponencial*, 4 intentos, intervalo `PT20S`. En la prueba se puede dejar por defecto.
 
@@ -98,7 +104,7 @@ Contenido: `body('HTTP')` (contenido dinámico *Cuerpo* de HTTP). Esquema:
 | Campo | Valor |
 |---|---|
 | Ruta de la carpeta | `/Firmas-prueba` (créala antes en OneDrive, o elígela con el selector) |
-| Nombre del archivo | expresión `replace(triggerBody()?['Documento']?['name'], '.pdf', '_firmado.pdf')` |
+| Nombre del archivo | expresión `replace(triggerBody()?['file']?['name'], '.pdf', '_firmado.pdf')` (la clave es `file`, no el nombre de la entrada; con `Documento` el nombre llega nulo y `replace` falla) |
 | Contenido del archivo | expresión `base64ToBinary(body('Analizar_JSON')?['pdf_firmado_base64'])` |
 
 ## 6. (Opcional) Acción «Redactar» — resumen
@@ -133,5 +139,7 @@ la acción HTTP debe dar **200** y en OneDrive aparece `<nombre>_firmado.pdf`.
 | HTTP 400 `pdf_invalido` | El archivo no es PDF o está protegido con contraseña. |
 | HTTP 404 `imagen_no_encontrada` | `imagen_id` distinto de `gerente.png` (la única subida en dev). |
 | HTTP 413 | PDF de más de 25 MB. |
+| «Crear archivo» falla con «'replace' expects its first parameter 'string'... provided value is of type 'Null'» | El nombre usa `triggerBody()?['Documento']?['name']`; la clave correcta es `file`. |
+| Al guardar: «The input parameter(s) of operation 'HTTP' contains invalid expression(s)» | Algún `@{...}` del cuerpo no contiene una expresión válida (p. ej. una fecha literal pegada de una ejecución). |
 | «Analizar JSON» falla con *Invalid type* | El API devolvió un error (JSON distinto): mirar el cuerpo de la acción HTTP. Para que el flujo no se detenga, añadir a «Analizar JSON» *Configurar ejecución después de* → también «ha fallado». |
 | Primera ejecución del día tarda 5–10 s | Arranque en frío de Flex Consumption; normal. |
