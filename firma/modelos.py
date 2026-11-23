@@ -52,6 +52,29 @@ class FirmaRequest(BaseModel):
     posicion: Posicion = Field(default_factory=Posicion)
     sello: Sello = Field(default_factory=Sello)
 
+    @field_validator("pdf_base64", mode="before")
+    @classmethod
+    def _normalizar_base64(cls, v):
+        """Acepta lo que mandan los conectores de Power Automate, no solo la cadena limpia:
+
+        - el objeto de contenido binario `{"$content-type": "...", "$content": "<base64>"}`
+          (lo que produce interpolar `contentBytes` o el cuerpo de «Obtener contenido del archivo»);
+        - un data URI `data:application/pdf;base64,<base64>`;
+        - base64 con saltos de línea o espacios.
+        """
+        if isinstance(v, dict):
+            contenido = v.get("$content")
+            if not isinstance(contenido, str):
+                raise ValueError("el objeto de pdf_base64 no trae '$content' con el archivo en base64")
+            v = contenido
+        if not isinstance(v, str):
+            raise ValueError("pdf_base64 debe ser una cadena base64 (o el objeto {'$content': ...})")
+        v = v.strip()
+        if v.startswith("data:"):
+            coma = v.find(",")
+            v = v[coma + 1:] if coma >= 0 else ""
+        return "".join(v.split())
+
     @field_validator("fecha_firma")
     @classmethod
     def _fecha_valida(cls, v: str) -> str:

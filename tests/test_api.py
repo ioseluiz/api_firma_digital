@@ -100,6 +100,28 @@ def test_errores_siguen_siendo_json_aunque_se_pida_pdf(app_local, pdf_1_pagina):
     assert json.loads(resp.get_body())["error"] == "imagen_no_encontrada"
 
 
+def test_firmar_acepta_objeto_de_contenido_de_power_automate(app_local, pdf_1_pagina):
+    """`{"$content-type": ..., "$content": ...}` es lo que produce interpolar contentBytes en un flujo."""
+    c = cuerpo_valido(pdf_1_pagina)
+    c["pdf_base64"] = {"$content-type": "application/pdf", "$content": base64.b64encode(pdf_1_pagina).decode("ascii")}
+    resp = app_local.firmar.build().get_user_function()(peticion(c))
+    assert resp.status_code == 200, resp.get_body()
+
+
+def test_firmar_acepta_data_uri_y_saltos_de_linea(app_local, pdf_1_pagina):
+    b64 = base64.b64encode(pdf_1_pagina).decode("ascii")
+    con_saltos = "\n".join(b64[i:i + 76] for i in range(0, len(b64), 76))
+    for valor in (f"data:application/pdf;base64,{b64}", con_saltos, f"  {b64}  "):
+        resp = app_local.firmar.build().get_user_function()(peticion(cuerpo_valido(pdf_1_pagina, pdf_base64=valor)))
+        assert resp.status_code == 200, resp.get_body()
+
+
+def test_firmar_objeto_sin_content_es_peticion_invalida(app_local, pdf_1_pagina):
+    resp = app_local.firmar.build().get_user_function()(peticion(cuerpo_valido(pdf_1_pagina, pdf_base64={"nombre": "x.pdf"})))
+    assert resp.status_code == 400
+    assert json.loads(resp.get_body())["error"] == "peticion_invalida"
+
+
 def test_firmar_cuerpo_no_json(app_local):
     req = peticion(b"esto no es json")
     resp = app_local.firmar.build().get_user_function()(req)
