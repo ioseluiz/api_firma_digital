@@ -283,6 +283,27 @@ az storage blob upload --auth-mode login --account-name stinifirmadev -c firmas 
 
 Comprobar: `GET https://func-ini-firma-dev.azurewebsites.net/api/v1/salud?code=<clave>` debe responder `imagen_por_defecto_ok: true`.
 
+### CI/CD (GitHub Actions)
+
+`.github/workflows/deploy-dev.yml`: cada push a `main` corre `pytest` en Ubuntu y, si pasa, publica
+en `func-ini-firma-dev` con compilación remota y comprueba `/salud`. También se lanza a mano desde
+la pestaña *Actions*. Repositorio: https://github.com/ioseluiz/api_firma_digital.
+
+Autenticación sin secretos: la identidad administrada `id-github-ini-firma` (en `rg-ini-firma-dev`,
+rol Colaborador sobre ese grupo) tiene credenciales federadas para el subject OIDC que GitHub
+presenta, que incluye los IDs numéricos del dueño y del repositorio
+(`repo:ioseluiz@42367982/api_firma_digital@1468868023:environment:dev`). Si el repositorio cambia
+de nombre o de dueño, el run falla con `AADSTS700213` y hay que recrear la credencial con el subject
+que aparece en ese error:
+
+```powershell
+az identity federated-credential create -g rg-ini-firma-dev --identity-name id-github-ini-firma -n <nombre> `
+  --issuer https://token.actions.githubusercontent.com --subject "<subject del error>" --audiences api://AzureADTokenExchange
+```
+
+Para un ambiente `prod` se repite el patrón: otra identidad (o la misma) con Colaborador sobre
+`rg-ini-firma-prod`, un `environment: prod` en GitHub con aprobación manual y su credencial federada.
+
 ### Autenticación
 
 - **Piloto:** `AuthLevel.FUNCTION`. El flujo manda la clave en la cabecera `x-functions-key`
