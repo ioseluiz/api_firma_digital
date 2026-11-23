@@ -12,6 +12,8 @@ tope en Azure es de 7 días: `VISOR_DIAS` se recorta a ese máximo.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import os
 import re
@@ -25,6 +27,23 @@ from .errores import VisorNoDisponible, VisorNoEncontrado
 log = logging.getLogger("ini.firma.visor")
 
 MAX_DIAS = 7  # tope de Azure para la clave de delegación de usuario
+TOKEN_LARGO = 32
+
+
+def token_para(codigo: str, secreto: str) -> str:
+    """Token estable por código: HMAC-SHA256(secreto, código) recortado. Hace que la URL corta no sea adivinable."""
+    return hmac.new(secreto.encode("utf-8"), codigo.strip().encode("utf-8"), hashlib.sha256).hexdigest()[:TOKEN_LARGO]
+
+
+def token_valido(codigo: str, token: str, secreto: str) -> bool:
+    return bool(secreto) and hmac.compare_digest(token_para(codigo, secreto), (token or "").strip().lower())
+
+
+def url_corta(base_api: str, codigo: str, secreto: str) -> str:
+    """`https://host/api/v1/visor/<codigo>/abrir/<token>`: cabe en una columna de 255 y redirige a un SAS fresco."""
+    return f"{base_api.rstrip('/')}/visor/{quote(codigo, safe='')}/abrir/{token_para(codigo, secreto)}"
+
+
 _NO_VALIDO = re.compile(r"[^A-Za-z0-9_.-]+")
 
 

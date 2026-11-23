@@ -19,6 +19,9 @@ param maxPdfMb int = 25
 @minValue(1)
 @maxValue(7)
 param visorDias int = 7
+@description('Secreto HMAC de las URL cortas del visor (.../visor/{codigo}/abrir/{token}). Por defecto, un valor determinista por grupo de recursos para que los enlaces guardados sobrevivan a los redespliegues; sustituir por uno fuerte (p. ej. desde Key Vault) antes de producción.')
+@secure()
+param visorSecreto string = guid(subscription().subscriptionId, resourceGroup().id, 'visor-secreto-v1')
 @description('Días tras la última modificación a partir de los cuales el ciclo de vida borra los blobs del contenedor del visor.')
 param visorRetencionDias int = 30
 param etiquetas object = {
@@ -200,6 +203,7 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'VISOR_ORIGEN', value: 'blob' }
         { name: 'VISOR_CONTENEDOR', value: contenedorVisor }
         { name: 'VISOR_DIAS', value: string(visorDias) }
+        { name: 'VISOR_SECRETO', value: visorSecreto }
       ]
     }
   }

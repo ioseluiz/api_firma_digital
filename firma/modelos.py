@@ -134,7 +134,8 @@ class VisorRequest(BaseModel):
 class VisorResponse(BaseModel):
     ok: Literal[True] = True
     codigo: str
-    url_visor: str = Field(description="URL SAS de solo lectura; el control PDF de Power Apps la abre tal cual")
+    url_visor: str = Field(description="URL corta y estable (.../visor/{codigo}/abrir/{token}) que redirige a un SAS fresco; cabe en 255 caracteres. Sin VISOR_SECRETO es la SAS directa")
+    url_sas: str = Field(description="URL SAS de solo lectura generada en esta llamada (vence en dias_vigencia); para diagnóstico")
     vence_utc: str
     blob: str
     bytes: int

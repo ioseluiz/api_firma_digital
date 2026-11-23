@@ -9,7 +9,7 @@ import pytest
 from azure.core.exceptions import ResourceNotFoundError
 from azure.storage.blob import UserDelegationKey
 
-from firma.visor import MAX_DIAS, AlmacenVisorBlob, AlmacenVisorNinguno, nombre_blob
+from firma.visor import MAX_DIAS, AlmacenVisorBlob, AlmacenVisorNinguno, nombre_blob, token_para, url_corta
 from tests.test_api import cuerpo_valido, peticion
 
 
@@ -190,3 +190,55 @@ def test_salud_reporta_el_visor(app_visor):
 def test_firmar_sigue_funcionando_con_visor(app_visor, pdf_1_pagina):
     resp = app_visor.firmar.build().get_user_function()(peticion(cuerpo_valido(pdf_1_pagina)))
     assert resp.status_code == 200
+
+
+def _abrir(app, codigo, token, metodo="GET"):
+    import azure.functions as func
+
+    req = func.HttpRequest(method=metodo, url=f"http://localhost/api/v1/visor/{codigo}/abrir/{token}", body=b"",
+                           headers={}, route_params={"codigo": codigo, "token": token})
+    return app.visor_abrir.build().get_user_function()(req)
+
+
+def test_con_secreto_la_url_visor_es_corta_y_estable(app_visor, pdf_1_pagina, monkeypatch):
+    monkeypatch.setenv("VISOR_SECRETO", "clave-de-prueba")
+    resp = _publicar(app_visor, pdf_1_pagina)
+    assert resp.status_code == 200, resp.get_body()
+    d = json.loads(resp.get_body())
+    assert d["url_visor"] == f"http://localhost/api/v1/visor/FIRMA-2026-000012/abrir/{token_para('FIRMA-2026-000012', 'clave-de-prueba')}"
+    assert len(d["url_visor"]) < 255
+    assert "sig=" in d["url_sas"] and d["url_sas"].startswith("https://cuenta.blob.core.windows.net/visor/")
+    # la URL corta no cambia entre llamadas (la SAS sí)
+    d2 = json.loads(_ruta(app_visor, "FIRMA-2026-000012", "GET").get_body())
+    assert d2["url_visor"] == d["url_visor"]
+
+
+def test_abrir_redirige_a_un_sas_fresco(app_visor, pdf_1_pagina, monkeypatch):
+    monkeypatch.setenv("VISOR_SECRETO", "clave-de-prueba")
+    assert _publicar(app_visor, pdf_1_pagina).status_code == 200
+    token = token_para("FIRMA-2026-000012", "clave-de-prueba")
+    resp = _abrir(app_visor, "FIRMA-2026-000012", token)
+    assert resp.status_code == 302
+    destino = resp.headers["Location"]
+    assert destino.startswith("https://cuenta.blob.core.windows.net/visor/FIRMA-2026-000012.pdf?") and "sig=" in destino
+    assert resp.headers["Cache-Control"] == "no-store"
+    assert _abrir(app_visor, "FIRMA-2026-000012", token, "HEAD").status_code == 302
+
+
+def test_abrir_rechaza_token_malo_y_blob_inexistente(app_visor, pdf_1_pagina, monkeypatch):
+    monkeypatch.setenv("VISOR_SECRETO", "clave-de-prueba")
+    assert _publicar(app_visor, pdf_1_pagina).status_code == 200
+    assert _abrir(app_visor, "FIRMA-2026-000012", "0" * 32).status_code == 404
+    token = token_para("FIRMA-2026-000099", "clave-de-prueba")
+    assert _abrir(app_visor, "FIRMA-2026-000099", token).status_code == 404
+
+
+def test_abrir_sin_secreto_configurado_es_404(app_visor, pdf_1_pagina, monkeypatch):
+    monkeypatch.delenv("VISOR_SECRETO", raising=False)
+    assert _publicar(app_visor, pdf_1_pagina).status_code == 200
+    assert _abrir(app_visor, "FIRMA-2026-000012", "x" * 32).status_code == 404
+
+
+def test_url_corta_escapa_el_codigo():
+    u = url_corta("https://h/api/v1", "A/B:C", "s")
+    assert "/visor/A%2FB%3AC/abrir/" in u

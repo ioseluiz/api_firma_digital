@@ -5,6 +5,7 @@ Rutas:
   POST   /api/v1/visor            guarda el original en el contenedor del visor; devuelve URL SAS temporal
   GET    /api/v1/visor/{codigo}   URL SAS nueva para un original ya publicado
   DELETE /api/v1/visor/{codigo}   borra el original del visor (idempotente)
+  GET    /api/v1/visor/{codigo}/abrir/{token}   ANÓNIMA: redirige (302) a un SAS fresco; es la URL que guarda SharePoint
   GET    /api/v1/salud            versión, origen de imágenes, visor y si la imagen por defecto es accesible
 
 Seguridad: en producción va detrás de Easy Auth (Entra ID, rol Firma.Ejecutar). Mientras tanto,
@@ -35,7 +36,7 @@ from firma.modelos import (
     CODIGO_PATRON, ErrorResponse, FirmaRequest, FirmaResponse, SaludResponse,
     VisorBorradoResponse, VisorRequest, VisorResponse,
 )
-from firma.visor import AlmacenVisor, almacen_desde_entorno
+from firma.visor import AlmacenVisor, almacen_desde_entorno, token_valido, url_corta
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 log = logging.getLogger("ini.firma")
@@ -71,6 +72,23 @@ def reiniciar_visor() -> None:
     """Para pruebas: fuerza a releer las variables de entorno."""
     global _visor
     _visor = None
+
+
+def _base_api(req: func.HttpRequest) -> str:
+    """`https://host/api/v1` a partir de la petición (respeta el host del proxy)."""
+    from urllib.parse import urlsplit
+
+    u = urlsplit(req.url)
+    host = req.headers.get("X-Forwarded-Host") or u.netloc
+    esquema = u.scheme if ("localhost" in host or "127.0.0.1" in host) else "https"
+    return f"{esquema}://{host}/api/v1"
+
+
+def _respuesta_visor(req: func.HttpRequest, codigo: str, r) -> dict:
+    secreto = os.getenv("VISOR_SECRETO", "")
+    url = url_corta(_base_api(req), codigo, secreto) if secreto else r.url
+    return VisorResponse(codigo=codigo, url_visor=url, url_sas=r.url, vence_utc=r.vence_utc.isoformat(),
+                         blob=r.blob, bytes=r.bytes, dias_vigencia=r.dias).model_dump()
 
 
 def _codigo_de_ruta(req: func.HttpRequest) -> str:
@@ -204,9 +222,7 @@ def visor_publicar(req: func.HttpRequest) -> func.HttpResponse:
         r = obtener_visor().publicar(peticion.codigo, pdf)
         log.info("visor publicado codigo=%s solicitud=%s bytes=%d vence=%s corr=%s",
                  peticion.codigo, peticion.solicitud_id, r.bytes, r.vence_utc.isoformat(), correlation_id)
-        respuesta = VisorResponse(codigo=peticion.codigo, url_visor=r.url, vence_utc=r.vence_utc.isoformat(),
-                                  blob=r.blob, bytes=r.bytes, dias_vigencia=r.dias)
-        return _json(respuesta.model_dump(), 200, correlation_id)
+        return _json(_respuesta_visor(req, peticion.codigo, r), 200, correlation_id)
     except ErrorFirma as e:
         log.warning("visor rechazado codigo=%s error=%s http=%d msg=%s corr=%s", codigo, e.codigo, e.http, e.mensaje, correlation_id)
         return _error(e, correlation_id)
@@ -228,15 +244,39 @@ def visor_codigo(req: func.HttpRequest) -> func.HttpResponse:
             return _json(VisorBorradoResponse(codigo=codigo, borrado=borrado).model_dump(), 200, correlation_id)
         r = visor.renovar(codigo)
         log.info("visor renovado codigo=%s vence=%s corr=%s", codigo, r.vence_utc.isoformat(), correlation_id)
-        respuesta = VisorResponse(codigo=codigo, url_visor=r.url, vence_utc=r.vence_utc.isoformat(),
-                                  blob=r.blob, bytes=r.bytes, dias_vigencia=r.dias)
-        return _json(respuesta.model_dump(), 200, correlation_id)
+        return _json(_respuesta_visor(req, codigo, r), 200, correlation_id)
     except ErrorFirma as e:
         log.warning("visor rechazado codigo=%s error=%s http=%d msg=%s corr=%s", codigo, e.codigo, e.http, e.mensaje, correlation_id)
         return _error(e, correlation_id)
     except Exception:
         log.exception("visor error interno codigo=%s corr=%s", codigo, correlation_id)
         return _error(ErrorFirma("Error interno en el visor; busque el correlation_id en Application Insights."), correlation_id)
+
+
+@app.route(route="v1/visor/{codigo}/abrir/{token}", methods=["GET", "HEAD"], auth_level=func.AuthLevel.ANONYMOUS)
+def visor_abrir(req: func.HttpRequest) -> func.HttpResponse:
+    """Ruta anónima: el control PDF de Power Apps (y cualquier navegador) la abre sin clave. El token HMAC por
+    código impide adivinar URLs; cada apertura recibe un SAS recién firmado, así que no caduca a los 7 días."""
+    correlation_id = req.headers.get("X-Correlation-Id") or str(uuid.uuid4())
+    codigo = "?"
+    try:
+        codigo = _codigo_de_ruta(req)
+        secreto = os.getenv("VISOR_SECRETO", "")
+        if not token_valido(codigo, req.route_params.get("token", ""), secreto):
+            log.warning("visor abrir rechazado codigo=%s corr=%s", codigo, correlation_id)
+            return func.HttpResponse("No encontrado.", status_code=404, mimetype="text/plain")
+        r = obtener_visor().renovar(codigo)
+        log.info("visor abrir codigo=%s corr=%s", codigo, correlation_id)
+        return func.HttpResponse(
+            "", status_code=302,
+            headers={"Location": r.url, "Cache-Control": "no-store", "X-Correlation-Id": correlation_id},
+        )
+    except ErrorFirma as e:
+        log.warning("visor abrir error codigo=%s error=%s corr=%s", codigo, e.codigo, correlation_id)
+        return func.HttpResponse("No encontrado." if e.http == 404 else "Visor no disponible.", status_code=e.http, mimetype="text/plain")
+    except Exception:
+        log.exception("visor abrir error interno codigo=%s corr=%s", codigo, correlation_id)
+        return func.HttpResponse("Visor no disponible.", status_code=500, mimetype="text/plain")
 
 
 @app.route(route="v1/firmar", methods=["POST"])

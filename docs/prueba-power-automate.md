@@ -142,4 +142,5 @@ la acción HTTP debe dar **200** y en OneDrive aparece `<nombre>_firmado.pdf`.
 | «Crear archivo» falla con «'replace' expects its first parameter 'string'... provided value is of type 'Null'» | El nombre usa `triggerBody()?['Documento']?['name']`; la clave correcta es `file`. |
 | Al guardar: «The input parameter(s) of operation 'HTTP' contains invalid expression(s)» | Algún `@{...}` del cuerpo no contiene una expresión válida (p. ej. una fecha literal pegada de una ejecución). |
 | «Analizar JSON» falla con *Invalid type* | El API devolvió un error (JSON distinto): mirar el cuerpo de la acción HTTP. Para que el flujo no se detenga, añadir a «Analizar JSON» *Configurar ejecución después de* → también «ha fallado». |
+| `Pasar a pendiente` falla con «requires the property 'item/Url_Visor' to be a string of maximum length 255» | El API devolvió la SAS completa en `url_visor` (versión < 0.3.1 o sin `VISOR_SECRETO`). Desde 0.3.1 `url_visor` es la URL corta. |
 | Primera ejecución del día tarda 5–10 s | Arranque en frío de Flex Consumption; normal. |

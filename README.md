@@ -222,12 +222,18 @@ POST /api/v1/visor
   "vence_utc": "2026-11-30T13:05:00+00:00", "blob": "FIRMA-2026-000012.pdf", "bytes": 1834221, "dias_vigencia": 7 }
 ```
 
-- `GET /api/v1/visor/{codigo}` devuelve una URL SAS nueva sobre el blob ya publicado (404
+- **`url_visor` es una URL corta y estable**: `…/api/v1/visor/{codigo}/abrir/{token}` (≈ 110 caracteres,
+  cabe en una columna de texto de SharePoint; una SAS mide ~450 y el conector la rechaza con «maximum
+  length 255»). Esa ruta es **anónima**: valida el token (HMAC-SHA256 de `VISOR_SECRETO` y el código,
+  32 hex) y responde `302` hacia una SAS recién firmada. Así el control PDF de Power Apps la abre sin
+  clave y el enlace no caduca mientras exista el blob. `url_sas` trae la SAS de esa llamada, para diagnóstico.
+  Sin `VISOR_SECRETO`, `url_visor` es la SAS directa (desarrollo local).
+- `GET /api/v1/visor/{codigo}` devuelve una `url_visor`/`url_sas` nuevas sobre el blob ya publicado (404
   `visor_no_encontrado` si no existe). `DELETE` lo borra y responde `{"borrado": true|false}`; nunca
   es un error que no existiera.
-- **Vigencia máxima: 7 días.** La cuenta tiene la clave compartida deshabilitada, así que el SAS se
+- **Cada SAS vale 7 días como máximo.** La cuenta tiene la clave compartida deshabilitada, así que el SAS se
   firma con una clave de delegación de usuario (identidad administrada), y Azure la limita a 7 días.
-  `VISOR_DIAS` se recorta a ese tope. Si una solicitud espera más, la app ofrece «Abrir en SharePoint».
+  `VISOR_DIAS` se recorta a ese tope. Con la URL corta eso no importa: cada apertura recibe una SAS nueva.
 - Es idempotente (reintentos de F01 sobrescriben). Los blobs que queden los borra la política de
   ciclo de vida del contenedor a los 30 días.
 - `503 visor_no_disponible` cuando `VISOR_ORIGEN=ninguno` (desarrollo local sin Azure).
@@ -268,7 +274,8 @@ Tiempo típico: menos de 1 s para 50 páginas. La imagen se cachea en memoria 10
 | `FIRMA_TEXTO_SELLO` | plantilla | Marcadores: `{nombre}`, `{cargo}` (ya lleva la coma), `{fecha}`, `{codigo}`, `{verif}`. |
 | `VISOR_ORIGEN` | `ninguno` / `blob` | Visor de la app. Con `blob` usa la misma cuenta de `FIRMAS_STORAGE_URL`. |
 | `VISOR_CONTENEDOR` | `visor` | Contenedor privado de las copias temporales. |
-| `VISOR_DIAS` | `7` | Vigencia de la URL SAS; tope real 7 (clave de delegación de usuario). |
+| `VISOR_DIAS` | `7` | Vigencia de cada SAS; tope real 7 (clave de delegación de usuario). |
+| `VISOR_SECRETO` | cadena | Clave HMAC de las URL cortas del visor. En Bicep tiene un valor determinista por grupo de recursos (`guid(...)`), para que los enlaces guardados sobrevivan a los redespliegues; sustituir por uno fuerte antes de producción. Vacío = sin URL corta. |
 
 ## Despliegue en Azure
 

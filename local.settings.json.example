@@ -10,6 +10,7 @@
     "VISOR_ORIGEN": "ninguno",
     "VISOR_CONTENEDOR": "visor",
     "VISOR_DIAS": "7",
+    "VISOR_SECRETO": "",
     "FIRMA_TEXTO_SELLO": "Firmado electrónicamente por {nombre}{cargo} · {fecha} · {codigo} · Verif. {verif}"
   }
 }

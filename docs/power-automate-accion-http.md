@@ -159,5 +159,7 @@ Tras crear `Original.pdf`, F01 llama `POST @{ApiUrl}/visor` con `{"solicitud_id"
 solicitud. La acción corre con 2 reintentos y 1 minuto de espera, y **`Cada_anexo` continúa aunque
 falle** (`runAfter: Succeeded, Failed, TimedOut`): sin visor la app muestra «Abrir en SharePoint».
 La bitácora anota `visor=ok` o `visor=no disponible`. F02 borra el blob con `DELETE @{ApiUrl}/visor/{codigo}`
-después de firmar, también sin bloquear la ejecución si falla. La URL SAS vale 7 días como máximo
-(clave de delegación de usuario); ver README del API.
+después de firmar, también sin bloquear la ejecución si falla. `url_visor` es una URL corta (`…/visor/{codigo}/abrir/{token}`) que redirige a una SAS fresca en cada
+apertura: cabe en la columna de SharePoint y no caduca a los 7 días. Medido el 2026-11-23: guardar la
+SAS completa (454 caracteres) en `Url_Visor` hizo fallar `Pasar_a_pendiente` («maximum length 255»), y
+recrear la columna como texto de varias líneas no bastó porque el conector cachea el esquema.
