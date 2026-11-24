@@ -1,0 +1,852 @@
+{
+  "nombre": "FIRMA F01 · Registrar envío",
+  "properties": {
+    "connectionReferences": {
+      "shared_sharepointonline": {
+        "runtimeSource": "embedded",
+        "connection": {
+          "connectionReferenceLogicalName": "ini_firma_sp"
+        },
+        "api": {
+          "name": "shared_sharepointonline"
+        }
+      },
+      "shared_office365": {
+        "runtimeSource": "embedded",
+        "connection": {
+          "connectionReferenceLogicalName": "ini_firma_o365"
+        },
+        "api": {
+          "name": "shared_office365"
+        }
+      }
+    },
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        },
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        },
+        "ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)": {
+          "defaultValue": "SIN_CONFIGURAR",
+          "type": "String",
+          "metadata": {
+            "schemaName": "ini_FIRMA_SitioUrl"
+          }
+        },
+        "ini_FIRMA_BibliotecaId (ini_FIRMA_BibliotecaId)": {
+          "defaultValue": "SIN_CONFIGURAR",
+          "type": "String",
+          "metadata": {
+            "schemaName": "ini_FIRMA_BibliotecaId"
+          }
+        },
+        "ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)": {
+          "defaultValue": "SIN_CONFIGURAR",
+          "type": "String",
+          "metadata": {
+            "schemaName": "ini_FIRMA_ModoPrueba"
+          }
+        },
+        "ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)": {
+          "defaultValue": "SIN_CONFIGURAR",
+          "type": "String",
+          "metadata": {
+            "schemaName": "ini_FIRMA_CorreoSoporte"
+          }
+        },
+        "ini_FIRMA_ApiUrl (ini_FIRMA_ApiUrl)": {
+          "defaultValue": "SIN_CONFIGURAR",
+          "type": "String",
+          "metadata": {
+            "schemaName": "ini_FIRMA_ApiUrl"
+          }
+        },
+        "ini_FIRMA_ApiKey (ini_FIRMA_ApiKey)": {
+          "defaultValue": "SIN_CONFIGURAR",
+          "type": "String",
+          "metadata": {
+            "schemaName": "ini_FIRMA_ApiKey"
+          }
+        },
+        "ini_FIRMA_AppUrl (ini_FIRMA_AppUrl)": {
+          "defaultValue": "SIN_CONFIGURAR",
+          "type": "String",
+          "metadata": {
+            "schemaName": "ini_FIRMA_AppUrl"
+          }
+        }
+      },
+      "triggers": {
+        "Al_crear_o_modificar_solicitud": {
+          "type": "OpenApiConnection",
+          "recurrence": {
+            "interval": 1,
+            "frequency": "Minute"
+          },
+          "splitOn": "@triggerOutputs()?['body/value']",
+          "conditions": [
+            {
+              "expression": "@and(equals(triggerOutputs()?['body/Accion'],'Enviar'), empty(triggerOutputs()?['body/Accion_Fecha']), equals(triggerOutputs()?['body/Estado/Value'],'Borrador'))"
+            }
+          ],
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "GetOnUpdatedItems"
+            },
+            "parameters": {
+              "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+              "table": "767347d5-3d27-4b12-8360-f114d5c51002"
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        }
+      },
+      "actions": {
+        "Iniciar_orden": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "OrdenAnexo",
+                "type": "integer",
+                "value": 0
+              }
+            ]
+          },
+          "runAfter": {}
+        },
+        "Marcar_accion_tomada": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "PatchItem"
+            },
+            "parameters": {
+              "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+              "table": "767347d5-3d27-4b12-8360-f114d5c51002",
+              "id": "@triggerOutputs()?['body/ID']",
+              "item/Title": "@triggerOutputs()?['body/Title']",
+              "item/Accion_Fecha": "@utcNow()"
+            },
+            "authentication": "@parameters('$authentication')"
+          },
+          "runAfter": {
+            "Iniciar_orden": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Leer_roles": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "GetItems"
+            },
+            "parameters": {
+              "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+              "table": "41a2b1f3-f830-4b76-9d11-a7d466020d5a",
+              "$filter": "Activo eq 1",
+              "$orderby": "Title",
+              "$top": 50
+            },
+            "authentication": "@parameters('$authentication')"
+          },
+          "runAfter": {
+            "Marcar_accion_tomada": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Filtrar_Gerente": {
+          "type": "Query",
+          "inputs": {
+            "from": "@body('Leer_roles')?['value']",
+            "where": "@equals(item()?['Title'],'Gerente')"
+          },
+          "runAfter": {
+            "Leer_roles": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Filtrar_Secretaria": {
+          "type": "Query",
+          "inputs": {
+            "from": "@body('Leer_roles')?['value']",
+            "where": "@equals(item()?['Title'],'Secretaria')"
+          },
+          "runAfter": {
+            "Filtrar_Gerente": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Try": {
+          "type": "Scope",
+          "actions": {
+            "Adjuntos": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "connectionName": "shared_sharepointonline",
+                  "operationId": "GetItemAttachments"
+                },
+                "parameters": {
+                  "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                  "table": "767347d5-3d27-4b12-8360-f114d5c51002",
+                  "itemId": "@triggerOutputs()?['body/ID']"
+                },
+                "authentication": "@parameters('$authentication')"
+              },
+              "runAfter": {}
+            },
+            "Filtrar_memo": {
+              "type": "Query",
+              "inputs": {
+                "from": "@body('Adjuntos')",
+                "where": "@startsWith(toLower(item()?['DisplayName']),'memo_')"
+              },
+              "runAfter": {
+                "Adjuntos": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Filtrar_anexos": {
+              "type": "Query",
+              "inputs": {
+                "from": "@body('Adjuntos')",
+                "where": "@startsWith(toLower(item()?['DisplayName']),'anexo_')"
+              },
+              "runAfter": {
+                "Filtrar_memo": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Filtrar_no_pdf": {
+              "type": "Query",
+              "inputs": {
+                "from": "@body('Adjuntos')",
+                "where": "@not(endsWith(toLower(item()?['DisplayName']),'.pdf'))"
+              },
+              "runAfter": {
+                "Filtrar_anexos": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Validar_adjuntos": {
+              "type": "If",
+              "expression": {
+                "and": [
+                  {
+                    "equals": [
+                      "@length(body('Filtrar_memo'))",
+                      1
+                    ]
+                  },
+                  {
+                    "equals": [
+                      "@length(body('Filtrar_no_pdf'))",
+                      0
+                    ]
+                  },
+                  {
+                    "equals": [
+                      "@length(body('Adjuntos'))",
+                      "@add(length(body('Filtrar_memo')),length(body('Filtrar_anexos')))"
+                    ]
+                  }
+                ]
+              },
+              "actions": {
+                "Codigo": {
+                  "type": "Compose",
+                  "inputs": "@concat('FIRMA-', convertFromUtc(utcNow(),'SA Pacific Standard Time','yyyy'), '-', formatNumber(int(triggerOutputs()?['body/ID']),'000000'))",
+                  "runAfter": {}
+                },
+                "Titulo_limpio": {
+                  "type": "Compose",
+                  "inputs": "@trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(coalesce(triggerOutputs()?['body/Title'],''),'/','-'),'\\','-'),':','-'),'*',''),'?',''),'\"',''),'<',''),'>',''),'|',''),'#',''),'%',''))",
+                  "runAfter": {
+                    "Codigo": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Carpeta": {
+                  "type": "Compose",
+                  "inputs": "@concat(convertFromUtc(utcNow(),'SA Pacific Standard Time','yyyy'), '/', if(empty(outputs('Titulo_limpio')), outputs('Codigo'), concat(outputs('Codigo'), ' - ', trim(substring(outputs('Titulo_limpio'), 0, min(length(outputs('Titulo_limpio')), 40))))))",
+                  "runAfter": {
+                    "Titulo_limpio": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Crear_carpeta": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                      "connectionName": "shared_sharepointonline",
+                      "operationId": "CreateNewFolder"
+                    },
+                    "parameters": {
+                      "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                      "table": "@parameters('ini_FIRMA_BibliotecaId (ini_FIRMA_BibliotecaId)')",
+                      "parameters/path": "@outputs('Carpeta')"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {
+                    "Carpeta": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Contenido_memo": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                      "connectionName": "shared_sharepointonline",
+                      "operationId": "GetAttachmentContent"
+                    },
+                    "parameters": {
+                      "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                      "table": "767347d5-3d27-4b12-8360-f114d5c51002",
+                      "itemId": "@triggerOutputs()?['body/ID']",
+                      "attachmentId": "@first(body('Filtrar_memo'))?['Id']"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {
+                    "Crear_carpeta": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Crear_original": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                      "connectionName": "shared_sharepointonline",
+                      "operationId": "CreateFile"
+                    },
+                    "parameters": {
+                      "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                      "folderPath": "@concat('/FIRMA_Documentos/', outputs('Carpeta'))",
+                      "name": "Original.pdf",
+                      "body": "@body('Contenido_memo')"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {
+                    "Contenido_memo": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Propiedades_original": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                      "connectionName": "shared_sharepointonline",
+                      "operationId": "PatchFileItem"
+                    },
+                    "parameters": {
+                      "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                      "table": "@parameters('ini_FIRMA_BibliotecaId (ini_FIRMA_BibliotecaId)')",
+                      "id": "@body('Crear_original')?['ItemId']",
+                      "item/Solicitud_ID_Num": "@triggerOutputs()?['body/ID']",
+                      "item/Codigo": "@outputs('Codigo')",
+                      "item/Tipo_Archivo/Value": "Original"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {
+                    "Crear_original": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Cada_anexo": {
+                  "type": "Foreach",
+                  "foreach": "@sort(body('Filtrar_anexos'),'DisplayName')",
+                  "actions": {
+                    "Sumar_orden": {
+                      "type": "IncrementVariable",
+                      "inputs": {
+                        "name": "OrdenAnexo",
+                        "value": 1
+                      },
+                      "runAfter": {}
+                    },
+                    "Contenido_anexo": {
+                      "type": "OpenApiConnection",
+                      "inputs": {
+                        "host": {
+                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                          "connectionName": "shared_sharepointonline",
+                          "operationId": "GetAttachmentContent"
+                        },
+                        "parameters": {
+                          "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                          "table": "767347d5-3d27-4b12-8360-f114d5c51002",
+                          "itemId": "@triggerOutputs()?['body/ID']",
+                          "attachmentId": "@items('Cada_anexo')?['Id']"
+                        },
+                        "authentication": "@parameters('$authentication')"
+                      },
+                      "runAfter": {
+                        "Sumar_orden": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+                    "Crear_anexo": {
+                      "type": "OpenApiConnection",
+                      "inputs": {
+                        "host": {
+                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                          "connectionName": "shared_sharepointonline",
+                          "operationId": "CreateFile"
+                        },
+                        "parameters": {
+                          "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                          "folderPath": "@concat('/FIRMA_Documentos/', outputs('Carpeta'))",
+                          "name": "@items('Cada_anexo')?['DisplayName']",
+                          "body": "@body('Contenido_anexo')"
+                        },
+                        "authentication": "@parameters('$authentication')"
+                      },
+                      "runAfter": {
+                        "Contenido_anexo": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+                    "Propiedades_anexo": {
+                      "type": "OpenApiConnection",
+                      "inputs": {
+                        "host": {
+                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                          "connectionName": "shared_sharepointonline",
+                          "operationId": "PatchFileItem"
+                        },
+                        "parameters": {
+                          "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                          "table": "@parameters('ini_FIRMA_BibliotecaId (ini_FIRMA_BibliotecaId)')",
+                          "id": "@body('Crear_anexo')?['ItemId']",
+                          "item/Solicitud_ID_Num": "@triggerOutputs()?['body/ID']",
+                          "item/Codigo": "@outputs('Codigo')",
+                          "item/Tipo_Archivo/Value": "Anexo",
+                          "item/Orden_Anexo": "@variables('OrdenAnexo')"
+                        },
+                        "authentication": "@parameters('$authentication')"
+                      },
+                      "runAfter": {
+                        "Crear_anexo": [
+                          "Succeeded"
+                        ]
+                      }
+                    }
+                  },
+                  "runtimeConfiguration": {
+                    "concurrency": {
+                      "repetitions": 1
+                    }
+                  },
+                  "runAfter": {
+                    "Publicar_visor": [
+                      "Succeeded",
+                      "Failed",
+                      "TimedOut"
+                    ]
+                  }
+                },
+                "Quitar_adjuntos": {
+                  "type": "Foreach",
+                  "foreach": "@body('Adjuntos')",
+                  "actions": {
+                    "Borrar_adjunto": {
+                      "type": "OpenApiConnection",
+                      "inputs": {
+                        "host": {
+                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                          "connectionName": "shared_sharepointonline",
+                          "operationId": "DeleteAttachment"
+                        },
+                        "parameters": {
+                          "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                          "table": "767347d5-3d27-4b12-8360-f114d5c51002",
+                          "itemId": "@triggerOutputs()?['body/ID']",
+                          "attachmentId": "@items('Quitar_adjuntos')?['Id']"
+                        },
+                        "authentication": "@parameters('$authentication')"
+                      },
+                      "runAfter": {}
+                    }
+                  },
+                  "runtimeConfiguration": {
+                    "concurrency": {
+                      "repetitions": 1
+                    }
+                  },
+                  "runAfter": {
+                    "Cada_anexo": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Pasar_a_pendiente": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                      "connectionName": "shared_sharepointonline",
+                      "operationId": "PatchItem"
+                    },
+                    "parameters": {
+                      "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                      "table": "767347d5-3d27-4b12-8360-f114d5c51002",
+                      "id": "@triggerOutputs()?['body/ID']",
+                      "item/Title": "@triggerOutputs()?['body/Title']",
+                      "item/Codigo": "@outputs('Codigo')",
+                      "item/Carpeta_Url": "@concat(parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)'), '/FIRMA_Documentos/', outputs('Carpeta'))",
+                      "item/Url_Original": "@concat(concat(parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)'), '/FIRMA_Documentos/', outputs('Carpeta')), '/Original.pdf')",
+                      "item/Fecha_Envio": "@utcNow()",
+                      "item/Solicitante_Email": "@coalesce(triggerOutputs()?['body/Solicitante_Email'], triggerOutputs()?['body/Solicitante/Email'], triggerOutputs()?['body/Author/Email'])",
+                      "item/Solicitante_Nombre": "@if(greater(indexOf(coalesce(triggerOutputs()?['body/Solicitante/DisplayName'], triggerOutputs()?['body/Author/DisplayName']),' - '),-1), substring(coalesce(triggerOutputs()?['body/Solicitante/DisplayName'], triggerOutputs()?['body/Author/DisplayName']), add(indexOf(coalesce(triggerOutputs()?['body/Solicitante/DisplayName'], triggerOutputs()?['body/Author/DisplayName']),' - '),3)), coalesce(triggerOutputs()?['body/Solicitante/DisplayName'], triggerOutputs()?['body/Author/DisplayName']))",
+                      "item/Registrado_Por_Email": "@coalesce(triggerOutputs()?['body/Registrado_Por_Email'], triggerOutputs()?['body/Author/Email'])",
+                      "item/Estado/Value": "Pendiente de firma",
+                      "item/Cantidad_Anexos": "@length(body('Filtrar_anexos'))",
+                      "item/Url_Visor": "@coalesce(actions('Publicar_visor')?['outputs']?['body']?['url_visor'], '')"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {
+                    "Quitar_adjuntos": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Bitacora_enviado": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                      "connectionName": "shared_sharepointonline",
+                      "operationId": "PostItem"
+                    },
+                    "parameters": {
+                      "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                      "table": "05d9b67a-a005-4826-ad13-67a622f834aa",
+                      "item/Title": "Enviado a firma",
+                      "item/Solicitud_ID_Num": "@triggerOutputs()?['body/ID']",
+                      "item/Codigo": "@outputs('Codigo')",
+                      "item/Evento": "Enviado a firma",
+                      "item/Actor_Email": "@toLower(coalesce(triggerOutputs()?['body/Editor/Email'],''))",
+                      "item/Detalle": "@{concat('Memo y ', length(body('Filtrar_anexos')), ' anexo(s) movidos a ', outputs('Carpeta'), ' · visor=', if(empty(coalesce(actions('Publicar_visor')?['outputs']?['body']?['url_visor'],'')), 'no disponible', 'ok'))}",
+                      "item/Fecha": "@utcNow()"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {
+                    "Pasar_a_pendiente": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Correo_gerente": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+                      "connectionName": "shared_office365",
+                      "operationId": "SendEmailV2"
+                    },
+                    "parameters": {
+                      "emailMessage/To": "@{if(equals(parameters('ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)'),'SI'), parameters('ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)'), coalesce(first(body('Filtrar_Gerente'))?['Email'], parameters('ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)')))}",
+                      "emailMessage/Subject": "@{if(equals(parameters('ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)'),'SI'),'[PRUEBA] ','')}Documento para firma: @{triggerOutputs()?['body/Title']} (@{outputs('Codigo')})",
+                      "emailMessage/Body": "<div style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2937;max-width:640px\">\n<div style=\"background:#00539B;color:#fff;padding:14px 18px;font-size:16px;font-weight:600\">Documento pendiente de su firma</div>\n<div style=\"padding:16px 18px;border:1px solid #d6dde6;border-top:0\">\n<p style=\"margin:0 0 12px\">Tiene un documento nuevo para revisar y firmar en la app INI Firma.</p>\n<table style=\"border-collapse:collapse;width:100%\"><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Código</td><td style=\"padding:6px 8px\">@{outputs('Codigo')}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Título</td><td style=\"padding:6px 8px\">@{triggerOutputs()?['body/Title']}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Tipo</td><td style=\"padding:6px 8px\">@{triggerOutputs()?['body/Tipo_Documento/Value']}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Urgencia</td><td style=\"padding:6px 8px\">@{triggerOutputs()?['body/Urgencia/Value']}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Solicitante</td><td style=\"padding:6px 8px\">@{if(greater(indexOf(coalesce(triggerOutputs()?['body/Solicitante/DisplayName'], triggerOutputs()?['body/Author/DisplayName']),' - '),-1), substring(coalesce(triggerOutputs()?['body/Solicitante/DisplayName'], triggerOutputs()?['body/Author/DisplayName']), add(indexOf(coalesce(triggerOutputs()?['body/Solicitante/DisplayName'], triggerOutputs()?['body/Author/DisplayName']),' - '),3)), coalesce(triggerOutputs()?['body/Solicitante/DisplayName'], triggerOutputs()?['body/Author/DisplayName']))}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Anexos</td><td style=\"padding:6px 8px\">@{length(body('Filtrar_anexos'))}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Descripción</td><td style=\"padding:6px 8px\">@{coalesce(triggerOutputs()?['body/Descripcion'],'—')}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Carpeta</td><td style=\"padding:6px 8px\"><a href=\"@{concat(parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)'), '/FIRMA_Documentos/', outputs('Carpeta'))}\">Abrir en SharePoint</a></td></tr></table>\n\n@{if(or(empty(parameters('ini_FIRMA_AppUrl (ini_FIRMA_AppUrl)')), equals(parameters('ini_FIRMA_AppUrl (ini_FIRMA_AppUrl)'),'SIN_CONFIGURAR')), '', concat('<p style=\"margin:16px 0 0\"><a href=\"', parameters('ini_FIRMA_AppUrl (ini_FIRMA_AppUrl)'), '\" style=\"background:#00539B;color:#fff;padding:10px 16px;text-decoration:none;border-radius:4px;display:inline-block\">Revisar y firmar en la app</a></p>'))}\n<p style=\"margin:16px 0 0;color:#6b7280;font-size:12px\">Firma de Documentos · INI. Correo automático, no responder.</p>\n</div></div>",
+                      "emailMessage/Importance": "Normal"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {
+                    "Bitacora_enviado": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Correo_solicitante": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+                      "connectionName": "shared_office365",
+                      "operationId": "SendEmailV2"
+                    },
+                    "parameters": {
+                      "emailMessage/To": "@{if(equals(parameters('ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)'),'SI'), parameters('ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)'), coalesce(triggerOutputs()?['body/Solicitante_Email'], triggerOutputs()?['body/Solicitante/Email'], triggerOutputs()?['body/Author/Email']))}",
+                      "emailMessage/Subject": "@{if(equals(parameters('ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)'),'SI'),'[PRUEBA] ','')}Solicitud enviada a firma: @{outputs('Codigo')}",
+                      "emailMessage/Body": "<div style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2937;max-width:640px\">\n<div style=\"background:#00539B;color:#fff;padding:14px 18px;font-size:16px;font-weight:600\">Su solicitud fue enviada a firma</div>\n<div style=\"padding:16px 18px;border:1px solid #d6dde6;border-top:0\">\n<p style=\"margin:0 0 12px\">El documento ya está en la bandeja del gerente. Le avisaremos cuando se firme o se devuelva.</p>\n<table style=\"border-collapse:collapse;width:100%\"><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Código</td><td style=\"padding:6px 8px\">@{outputs('Codigo')}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Título</td><td style=\"padding:6px 8px\">@{triggerOutputs()?['body/Title']}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Anexos</td><td style=\"padding:6px 8px\">@{length(body('Filtrar_anexos'))}</td></tr></table>\n\n<p style=\"margin:16px 0 0;color:#6b7280;font-size:12px\">Firma de Documentos · INI. Correo automático, no responder.</p>\n</div></div>",
+                      "emailMessage/Importance": "Normal",
+                      "emailMessage/Cc": "@{if(equals(parameters('ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)'),'SI'), '', coalesce(first(body('Filtrar_Secretaria'))?['Email'], parameters('ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)')))}"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {
+                    "Correo_gerente": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Publicar_visor": {
+                  "type": "Http",
+                  "inputs": {
+                    "method": "POST",
+                    "uri": "@{parameters('ini_FIRMA_ApiUrl (ini_FIRMA_ApiUrl)')}/visor",
+                    "headers": {
+                      "Content-Type": "application/json",
+                      "x-functions-key": "@parameters('ini_FIRMA_ApiKey (ini_FIRMA_ApiKey)')",
+                      "X-Correlation-Id": "@workflow()?['run']?['name']"
+                    },
+                    "body": {
+                      "solicitud_id": "@triggerOutputs()?['body/ID']",
+                      "codigo": "@outputs('Codigo')",
+                      "pdf_base64": "@base64(body('Contenido_memo'))"
+                    },
+                    "retryPolicy": {
+                      "type": "exponential",
+                      "count": 2,
+                      "interval": "PT15S",
+                      "minimumInterval": "PT15S",
+                      "maximumInterval": "PT1M"
+                    }
+                  },
+                  "limit": {
+                    "timeout": "PT1M"
+                  },
+                  "runtimeConfiguration": {
+                    "secureData": {
+                      "properties": [
+                        "inputs"
+                      ]
+                    }
+                  },
+                  "runAfter": {
+                    "Propiedades_original": [
+                      "Succeeded"
+                    ]
+                  }
+                }
+              },
+              "else": {
+                "actions": {
+                  "Motivo_invalido": {
+                    "type": "Compose",
+                    "inputs": "@concat(if(equals(length(body('Filtrar_memo')),1),'',concat('Debe haber exactamente un archivo MEMO_....pdf (hay ', length(body('Filtrar_memo')), '). ')), if(equals(length(body('Filtrar_no_pdf')),0),'','Todos los archivos deben ser PDF. '), if(equals(length(body('Adjuntos')),add(length(body('Filtrar_memo')),length(body('Filtrar_anexos')))),'','Cada archivo debe empezar con MEMO_ o ANEXO_.'))",
+                    "runAfter": {}
+                  },
+                  "Devolver_a_borrador": {
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "host": {
+                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                        "connectionName": "shared_sharepointonline",
+                        "operationId": "PatchItem"
+                      },
+                      "parameters": {
+                        "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                        "table": "767347d5-3d27-4b12-8360-f114d5c51002",
+                        "id": "@triggerOutputs()?['body/ID']",
+                        "item/Title": "@triggerOutputs()?['body/Title']",
+                        "item/Accion": "Revisar",
+                        "item/Error_Detalle": "@outputs('Motivo_invalido')"
+                      },
+                      "authentication": "@parameters('$authentication')"
+                    },
+                    "runAfter": {
+                      "Motivo_invalido": [
+                        "Succeeded"
+                      ]
+                    }
+                  },
+                  "Bitacora_invalido": {
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "host": {
+                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                        "connectionName": "shared_sharepointonline",
+                        "operationId": "PostItem"
+                      },
+                      "parameters": {
+                        "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                        "table": "05d9b67a-a005-4826-ad13-67a622f834aa",
+                        "item/Title": "Envío no válido",
+                        "item/Solicitud_ID_Num": "@triggerOutputs()?['body/ID']",
+                        "item/Codigo": "@coalesce(triggerOutputs()?['body/Codigo'],'')",
+                        "item/Evento": "Envío no válido",
+                        "item/Actor_Email": "@toLower(coalesce(triggerOutputs()?['body/Editor/Email'],''))",
+                        "item/Detalle": "@outputs('Motivo_invalido')",
+                        "item/Fecha": "@utcNow()"
+                      },
+                      "authentication": "@parameters('$authentication')"
+                    },
+                    "runAfter": {
+                      "Devolver_a_borrador": [
+                        "Succeeded"
+                      ]
+                    }
+                  },
+                  "Correo_invalido": {
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "host": {
+                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+                        "connectionName": "shared_office365",
+                        "operationId": "SendEmailV2"
+                      },
+                      "parameters": {
+                        "emailMessage/To": "@{if(equals(parameters('ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)'),'SI'), parameters('ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)'), coalesce(triggerOutputs()?['body/Solicitante_Email'], triggerOutputs()?['body/Solicitante/Email'], triggerOutputs()?['body/Author/Email']))}",
+                        "emailMessage/Subject": "@{if(equals(parameters('ini_FIRMA_ModoPrueba (ini_FIRMA_ModoPrueba)'),'SI'),'[PRUEBA] ','')}No se pudo enviar a firma: @{triggerOutputs()?['body/Title']}",
+                        "emailMessage/Body": "<div style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2937;max-width:640px\">\n<div style=\"background:#00539B;color:#fff;padding:14px 18px;font-size:16px;font-weight:600\">La solicitud no se pudo enviar</div>\n<div style=\"padding:16px 18px;border:1px solid #d6dde6;border-top:0\">\n<p style=\"margin:0 0 12px\">Revise los archivos adjuntos y vuelva a enviarla desde la app.</p>\n<table style=\"border-collapse:collapse;width:100%\"><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Título</td><td style=\"padding:6px 8px\">@{triggerOutputs()?['body/Title']}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Motivo</td><td style=\"padding:6px 8px\">@{outputs('Motivo_invalido')}</td></tr></table>\n\n<p style=\"margin:16px 0 0;color:#6b7280;font-size:12px\">Firma de Documentos · INI. Correo automático, no responder.</p>\n</div></div>",
+                        "emailMessage/Importance": "Normal"
+                      },
+                      "authentication": "@parameters('$authentication')"
+                    },
+                    "runAfter": {
+                      "Bitacora_invalido": [
+                        "Succeeded"
+                      ]
+                    }
+                  }
+                }
+              },
+              "runAfter": {
+                "Filtrar_no_pdf": [
+                  "Succeeded"
+                ]
+              }
+            }
+          },
+          "runAfter": {
+            "Filtrar_Secretaria": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Catch": {
+          "type": "Scope",
+          "actions": {
+            "Detalle_error": {
+              "type": "Compose",
+              "inputs": "@substring(string(result('Try')), 0, min(length(string(result('Try'))), 3500))",
+              "runAfter": {}
+            },
+            "Marcar_error": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "connectionName": "shared_sharepointonline",
+                  "operationId": "PatchItem"
+                },
+                "parameters": {
+                  "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                  "table": "767347d5-3d27-4b12-8360-f114d5c51002",
+                  "id": "@triggerOutputs()?['body/ID']",
+                  "item/Title": "@triggerOutputs()?['body/Title']",
+                  "item/Accion": "Error",
+                  "item/Error_Detalle": "@outputs('Detalle_error')"
+                },
+                "authentication": "@parameters('$authentication')"
+              },
+              "runAfter": {
+                "Detalle_error": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Bitacora_error": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "connectionName": "shared_sharepointonline",
+                  "operationId": "PostItem"
+                },
+                "parameters": {
+                  "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                  "table": "05d9b67a-a005-4826-ad13-67a622f834aa",
+                  "item/Title": "Error en F01 Registrar",
+                  "item/Solicitud_ID_Num": "@triggerOutputs()?['body/ID']",
+                  "item/Codigo": "@coalesce(triggerOutputs()?['body/Codigo'],'')",
+                  "item/Evento": "Error en F01 Registrar",
+                  "item/Actor_Email": "@toLower(coalesce(triggerOutputs()?['body/Editor/Email'],''))",
+                  "item/Detalle": "@outputs('Detalle_error')",
+                  "item/Fecha": "@utcNow()"
+                },
+                "authentication": "@parameters('$authentication')"
+              },
+              "runAfter": {
+                "Marcar_error": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Correo_soporte": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+                  "connectionName": "shared_office365",
+                  "operationId": "SendEmailV2"
+                },
+                "parameters": {
+                  "emailMessage/To": "@{parameters('ini_FIRMA_CorreoSoporte (ini_FIRMA_CorreoSoporte)')}",
+                  "emailMessage/Subject": "[FIRMA] Error en F01 Registrar · solicitud @{triggerOutputs()?['body/ID']}",
+                  "emailMessage/Body": "<div style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2937;max-width:640px\">\n<div style=\"background:#00539B;color:#fff;padding:14px 18px;font-size:16px;font-weight:600\">Error en F01 Registrar</div>\n<div style=\"padding:16px 18px;border:1px solid #d6dde6;border-top:0\">\n<p style=\"margin:0 0 12px\">El flujo falló. Detalle técnico:</p>\n<table style=\"border-collapse:collapse;width:100%\"><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Solicitud</td><td style=\"padding:6px 8px\">@{triggerOutputs()?['body/ID']} · @{triggerOutputs()?['body/Title']}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Ejecución</td><td style=\"padding:6px 8px\">@{workflow()?['run']?['name']}</td></tr><tr><td style=\"padding:6px 8px;background:#f3f6f9;width:170px;font-weight:600\">Detalle</td><td style=\"padding:6px 8px\">@{outputs('Detalle_error')}</td></tr></table>\n\n<p style=\"margin:16px 0 0;color:#6b7280;font-size:12px\">Firma de Documentos · INI. Correo automático, no responder.</p>\n</div></div>",
+                  "emailMessage/Importance": "Normal"
+                },
+                "authentication": "@parameters('$authentication')"
+              },
+              "runAfter": {
+                "Bitacora_error": [
+                  "Succeeded"
+                ]
+              }
+            }
+          },
+          "runAfter": {
+            "Try": [
+              "Failed",
+              "TimedOut"
+            ]
+          }
+        }
+      }
+    },
+    "templateName": ""
+  },
+  "schemaVersion": "1.0.0.0"
+}
