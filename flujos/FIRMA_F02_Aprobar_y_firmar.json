@@ -246,6 +246,76 @@
                 ]
               }
             },
+            "Adjuntos_firmante": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "connectionName": "shared_sharepointonline",
+                  "operationId": "GetItemAttachments"
+                },
+                "parameters": {
+                  "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                  "table": "41a2b1f3-f830-4b76-9d11-a7d466020d5a",
+                  "itemId": "@outputs('Firmante')?['ID']"
+                },
+                "authentication": "@parameters('$authentication')"
+              },
+              "runAfter": {
+                "Firmante": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Imagenes_adjuntas": {
+              "type": "Query",
+              "inputs": {
+                "from": "@body('Adjuntos_firmante')",
+                "where": "@or(endsWith(toLower(coalesce(item()?['DisplayName'], item()?['Name'], '')), '.png'), endsWith(toLower(coalesce(item()?['DisplayName'], item()?['Name'], '')), '.jpg'), endsWith(toLower(coalesce(item()?['DisplayName'], item()?['Name'], '')), '.jpeg'))"
+              },
+              "runAfter": {
+                "Adjuntos_firmante": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Leer_imagen_adjunta": {
+              "type": "If",
+              "expression": {
+                "greater": [
+                  "@length(body('Imagenes_adjuntas'))",
+                  0
+                ]
+              },
+              "actions": {
+                "Contenido_imagen": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                      "connectionName": "shared_sharepointonline",
+                      "operationId": "GetAttachmentContent"
+                    },
+                    "parameters": {
+                      "dataset": "@parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)')",
+                      "table": "41a2b1f3-f830-4b76-9d11-a7d466020d5a",
+                      "itemId": "@outputs('Firmante')?['ID']",
+                      "attachmentId": "@last(body('Imagenes_adjuntas'))?['Id']"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {}
+                }
+              },
+              "else": {
+                "actions": {}
+              },
+              "runAfter": {
+                "Imagenes_adjuntas": [
+                  "Succeeded"
+                ]
+              }
+            },
             "Carpeta_relativa": {
               "type": "Compose",
               "inputs": "@replace(coalesce(triggerOutputs()?['body/Carpeta_Url'],''), parameters('ini_FIRMA_SitioUrl (ini_FIRMA_SitioUrl)'), '')",
@@ -358,12 +428,22 @@
                     ]
                   },
                   {
-                    "not": {
-                      "equals": [
-                        "@outputs('Imagen_Id')",
-                        ""
-                      ]
-                    }
+                    "or": [
+                      {
+                        "not": {
+                          "equals": [
+                            "@outputs('Imagen_Id')",
+                            ""
+                          ]
+                        }
+                      },
+                      {
+                        "greater": [
+                          "@length(body('Imagenes_adjuntas'))",
+                          0
+                        ]
+                      }
+                    ]
                   },
                   {
                     "not": {
@@ -447,7 +527,8 @@
                         "nombre": "@coalesce(outputs('Firmante')?['Nombre_Firma'],'')",
                         "cargo": "@coalesce(outputs('Firmante')?['Cargo_Firma'],'')",
                         "email": "@toLower(coalesce(outputs('Firmante')?['Email'],''))",
-                        "imagen_id": "@outputs('Imagen_Id')"
+                        "imagen_id": "@outputs('Imagen_Id')",
+                        "imagen_base64": "@coalesce(actions('Contenido_imagen')?['outputs']?['body']?['$content'], '')"
                       },
                       "fecha_firma": "@outputs('Fecha_firma_local')",
                       "posicion": "@outputs('Posicion')",
@@ -646,7 +727,7 @@
                       "item/Codigo": "@triggerOutputs()?['body/Codigo']",
                       "item/Evento": "Firmado",
                       "item/Actor_Email": "@toLower(coalesce(outputs('Firmante')?['Email'], triggerOutputs()?['body/Editor/Email'], ''))",
-                      "item/Detalle": "@concat('Firmado.pdf · pág ', string(body('Analizar_respuesta')?['pagina_firmada']), '/', string(body('Analizar_respuesta')?['paginas']), ' · ancla=', string(body('Analizar_respuesta')?['ancla_encontrada']), ' · firma_mm=', string(body('Analizar_respuesta')?['firma_mm']), ' · clic=', string(triggerOutputs()?['body/Firma_X_pct']), '/', string(triggerOutputs()?['body/Firma_Y_pct']), ' · sha256=', body('Analizar_respuesta')?['sha256'], ' · verif=', body('Analizar_respuesta')?['codigo_verificacion'], ' · ', string(body('Analizar_respuesta')?['duracion_ms']), ' ms')",
+                      "item/Detalle": "@concat('Firmado.pdf · pág ', string(body('Analizar_respuesta')?['pagina_firmada']), '/', string(body('Analizar_respuesta')?['paginas']), ' · ancla=', string(body('Analizar_respuesta')?['ancla_encontrada']), ' · imagen=', if(greater(length(body('Imagenes_adjuntas')), 0), concat('adjunto:', last(body('Imagenes_adjuntas'))?['DisplayName']), outputs('Imagen_Id')), ' · firma_mm=', string(body('Analizar_respuesta')?['firma_mm']), ' · clic=', string(triggerOutputs()?['body/Firma_X_pct']), '/', string(triggerOutputs()?['body/Firma_Y_pct']), ' · sha256=', body('Analizar_respuesta')?['sha256'], ' · verif=', body('Analizar_respuesta')?['codigo_verificacion'], ' · ', string(body('Analizar_respuesta')?['duracion_ms']), ' ms')",
                       "item/Fecha": "@utcNow()"
                     },
                     "authentication": "@parameters('$authentication')"
@@ -713,7 +794,7 @@
                 "actions": {
                   "Motivo_invalido": {
                     "type": "Compose",
-                    "inputs": "@if(equals(length(body('Firmantes_autorizados')),0), if(and(equals(triggerOutputs()?['body/Estado/Value'],'Error de firma'), greater(length(body('Administradores')),0)), '', concat('Acción no autorizada: ', toLower(coalesce(triggerOutputs()?['body/Editor/Email'],'')), ' no es gerente ni suplente activo.')), if(empty(outputs('Imagen_Id')), 'El firmante no tiene imagen de firma (Imagen_Firma_Id) en FIRMA_Roles.', 'La solicitud no tiene carpeta (Carpeta_Url) dentro del sitio.'))",
+                    "inputs": "@if(equals(length(body('Firmantes_autorizados')),0), if(and(equals(triggerOutputs()?['body/Estado/Value'],'Error de firma'), greater(length(body('Administradores')),0)), '', concat('Acción no autorizada: ', toLower(coalesce(triggerOutputs()?['body/Editor/Email'],'')), ' no es gerente ni suplente activo.')), if(empty(outputs('Imagen_Id')), 'El firmante no tiene imagen de firma: debe subirla en la app (Mi firma) o fijar Imagen_Firma_Id en FIRMA_Roles.', 'La solicitud no tiene carpeta (Carpeta_Url) dentro del sitio.'))",
                     "runAfter": {}
                   },
                   "Devolver_a_pendiente": {
@@ -794,6 +875,9 @@
               },
               "runAfter": {
                 "Imagen_Id": [
+                  "Succeeded"
+                ],
+                "Leer_imagen_adjunta": [
                   "Succeeded"
                 ],
                 "Carpeta_relativa": [

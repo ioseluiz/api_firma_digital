@@ -180,6 +180,8 @@ def construir() -> dict:
                         "cargo": "@coalesce(outputs('Firmante')?['Cargo_Firma'],'')",
                         "email": "@toLower(coalesce(outputs('Firmante')?['Email'],''))",
                         "imagen_id": "@outputs('Imagen_Id')",
+                        # Vacío si no hay adjunto: el API usa imagen_id. actions()?[...] no falla si la acción se omitió.
+                        "imagen_base64": "@coalesce(actions('Contenido_imagen')?['outputs']?['body']?['$content'], '')",
                     },
                     "fecha_firma": "@outputs('Fecha_firma_local')",
                     "posicion": "@outputs('Posicion')",
@@ -220,6 +222,7 @@ def construir() -> dict:
             "Firmado", "@toLower(coalesce(outputs('Firmante')?['Email'], triggerOutputs()?['body/Editor/Email'], ''))",
             "@concat('Firmado.pdf · pág ', string(body('Analizar_respuesta')?['pagina_firmada']), '/', string(body('Analizar_respuesta')?['paginas']), "
             "' · ancla=', string(body('Analizar_respuesta')?['ancla_encontrada']), "
+            "' · imagen=', if(greater(length(body('Imagenes_adjuntas')), 0), concat('adjunto:', last(body('Imagenes_adjuntas'))?['DisplayName']), outputs('Imagen_Id')), "
             "' · firma_mm=', string(body('Analizar_respuesta')?['firma_mm']), "
             "' · clic=', string(triggerOutputs()?['body/Firma_X_pct']), '/', string(triggerOutputs()?['body/Firma_Y_pct']), "
             "' · sha256=', body('Analizar_respuesta')?['sha256'], "
@@ -267,7 +270,7 @@ def construir() -> dict:
             "@if(equals(length(body('Firmantes_autorizados')),0), "
             f"if(and({es_reintento}, greater(length(body('Administradores')),0)), '', "
             f"concat('Acción no autorizada: ', {EDITOR}, ' no es gerente ni suplente activo.')), "
-            "if(empty(outputs('Imagen_Id')), 'El firmante no tiene imagen de firma (Imagen_Firma_Id) en FIRMA_Roles.', "
+            "if(empty(outputs('Imagen_Id')), 'El firmante no tiene imagen de firma: debe subirla en la app (Mi firma) o fijar Imagen_Firma_Id en FIRMA_Roles.', "
             "'La solicitud no tiene carpeta (Carpeta_Url) dentro del sitio.'))"
         ),
         "Devolver_a_pendiente": patch_solicitud({
@@ -306,6 +309,30 @@ def construir() -> dict:
             "@coalesce(outputs('Firmante')?['Imagen_Firma_Id'], if(equals(outputs('Firmante')?['Title'],'Gerente'), 'gerente.png', ''))",
             ok("Firmante"),
         ),
+        # La imagen que el gerente/suplente sube en la app («Mi firma») es un adjunto de su fila en FIRMA_Roles y manda
+        # sobre Imagen_Firma_Id (origen fijo del API). Se toma la última imagen PNG/JPG adjunta.
+        "Adjuntos_firmante": sp("GetItemAttachments", {
+            "dataset": SITIO, "table": LISTA_ROLES, "itemId": "@outputs('Firmante')?['ID']",
+        }, ok("Firmante")),
+        "Imagenes_adjuntas": query(
+            "@body('Adjuntos_firmante')",
+            "@or(endsWith(toLower(coalesce(item()?['DisplayName'], item()?['Name'], '')), '.png'), "
+            "endsWith(toLower(coalesce(item()?['DisplayName'], item()?['Name'], '')), '.jpg'), "
+            "endsWith(toLower(coalesce(item()?['DisplayName'], item()?['Name'], '')), '.jpeg'))",
+            ok("Adjuntos_firmante"),
+        ),
+        "Leer_imagen_adjunta": {
+            "type": "If",
+            "expression": {"greater": ["@length(body('Imagenes_adjuntas'))", 0]},
+            "actions": {
+                "Contenido_imagen": sp("GetAttachmentContent", {
+                    "dataset": SITIO, "table": LISTA_ROLES, "itemId": "@outputs('Firmante')?['ID']",
+                    "attachmentId": "@last(body('Imagenes_adjuntas'))?['Id']",
+                }),
+            },
+            "else": {"actions": {}},
+            "runAfter": ok("Imagenes_adjuntas"),
+        },
         "Carpeta_relativa": compose(
             f"@replace(coalesce(triggerOutputs()?['body/Carpeta_Url'],''), {SITIO[1:]}, '')",
             ok("Firmante"),
@@ -337,12 +364,15 @@ def construir() -> dict:
                     {"and": [{"equals": ["@triggerOutputs()?['body/Estado/Value']", "Error de firma"]},
                              {"greater": ["@length(body('Administradores'))", 0]}]},
                 ]},
-                {"not": {"equals": ["@outputs('Imagen_Id')", ""]}},
+                {"or": [
+                    {"not": {"equals": ["@outputs('Imagen_Id')", ""]}},
+                    {"greater": ["@length(body('Imagenes_adjuntas'))", 0]},
+                ]},
                 {"not": {"equals": ["@outputs('Carpeta_relativa')", "@coalesce(triggerOutputs()?['body/Carpeta_Url'],'')"]}},
             ]},
             "actions": aprobar_then,
             "else": {"actions": aprobar_else},
-            "runAfter": ok("Imagen_Id", "Carpeta_relativa", "Posicion"),
+            "runAfter": ok("Imagen_Id", "Leer_imagen_adjunta", "Carpeta_relativa", "Posicion"),
         },
     }
 
