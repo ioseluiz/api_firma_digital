@@ -7,7 +7,7 @@ inicial de un flujo nuevo; si alguien lo hace, `subir_flujo.py` lo muestra en el
 | Archivo | Qué es |
 |---|---|
 | `FIRMA_F01_Registrar_envio.json` | Línea base de cpitti + el ajuste del visor (`ajustar_f01.py`) |
-| `FIRMA_F02_Aprobar_y_firmar.json` | Generado por `generar_f02.py`: llama al API (`/firmar`) y guarda `Firmado.pdf`. En `posicion` manda `pagina` (`Pagina_Firma`) y, si el gerente marcó un punto en la app, `x_pct`/`y_pct`/`lienzo` (`Firma_X_pct`, `Firma_Y_pct`, `Firma_Lienzo`) |
+| `FIRMA_F02_Aprobar_y_firmar.json` | Generado por `generar_f02.py`: llama al API (`/firmar`) y guarda `Firmado.pdf`. En `posicion` manda `pagina` (`Pagina_Firma`) y, si el gerente marcó un punto en la app, `x_pct`/`y_pct`/`lienzo` (`Firma_X_pct`, `Firma_Y_pct`, `Firma_Lienzo`). Al terminar publica el PDF firmado en el visor (`Publicar_visor_firmado`) en vez de borrarlo |
 | `FIRMA_F03_Rechazar.json`, `FIRMA_F04_Cancelar.json`, `FIRMA_F05_Recordatorios.json` | Línea base exportada el 2026-11-23 (sin cambios) |
 | `dataverse.py` | Web API de Dataverse con el token de `az` (sin SDK) |
 | `validar_parametros.py` | Valida acciones contra el swagger real del conector (`pac connectivity`) y la coherencia interna |

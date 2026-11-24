@@ -213,7 +213,7 @@ def construir() -> dict:
             "item/Hash_Firmado": "@body('Analizar_respuesta')?['sha256']",
             "item/Codigo_Verificacion": "@body('Analizar_respuesta')?['codigo_verificacion']",
             "item/Url_Firmado": "@concat(triggerOutputs()?['body/Carpeta_Url'], '/Firmado.pdf')",
-            "item/Url_Visor": "",
+            # Url_Visor se conserva: Publicar_visor_firmado sobrescribe el blob con el PDF firmado y la URL corta es la misma.
             "item/Error_Detalle": "",
         }, ok("Propiedades_firmado")),
         "Bitacora_firmado": bitacora(
@@ -380,20 +380,29 @@ def construir() -> dict:
         "Filtrar_Secretaria": query("@body('Leer_roles')?['value']", "@equals(item()?['Title'],'Secretaria')", ok("Leer_roles")),
         "Try": {"type": "Scope", "actions": try_actions, "runAfter": ok("Filtrar_Gerente", "Filtrar_Secretaria", "Leer_parametros")},
         "Catch": {"type": "Scope", "actions": catch_actions, "runAfter": {"Try": ["Failed", "TimedOut"]}},
-        "Borrar_visor": {
+        # El visor pasa a mostrar el PDF firmado (mismo código → misma URL corta; la app añade ?v= para saltar la caché).
+        # Antes se borraba el blob y el gerente no podía ver el documento con la firma. El ciclo de vida del
+        # contenedor lo borra a los 30 días.
+        "Publicar_visor_firmado": {
             "type": "Http",
             "inputs": {
-                "method": "DELETE",
-                "uri": f"@{{{API_URL}}}/visor/@{{triggerOutputs()?['body/Codigo']}}",
-                "headers": {"x-functions-key": f"@{API_KEY}", "X-Correlation-Id": "@workflow()?['run']?['name']"},
-                "retryPolicy": {"type": "none"},
+                "method": "POST",
+                "uri": f"@{{{API_URL}}}/visor",
+                "headers": {"Content-Type": "application/json", "x-functions-key": f"@{API_KEY}",
+                            "X-Correlation-Id": "@workflow()?['run']?['name']"},
+                "body": {
+                    "solicitud_id": ID,
+                    "codigo": CODIGO,
+                    "pdf_base64": "@body('Analizar_respuesta')?['pdf_firmado_base64']",
+                },
+                "retryPolicy": {"type": "fixed", "count": 2, "interval": "PT20S"},
             },
-            "limit": {"timeout": "PT30S"},
+            "limit": {"timeout": "PT1M"},
             "runtimeConfiguration": {"secureData": {"properties": ["inputs"]}},
             "runAfter": {"Try": ["Succeeded"]},
         },
-        # Que un fallo al borrar el visor no marque la ejecución como fallida: el documento ya está firmado.
-        "Limpieza_terminada": compose("ok", {"Borrar_visor": ["Succeeded", "Failed", "TimedOut", "Skipped"]}),
+        # Que un fallo al publicar el visor no marque la ejecución como fallida: el documento ya está firmado.
+        "Limpieza_terminada": compose("ok", {"Publicar_visor_firmado": ["Succeeded", "Failed", "TimedOut", "Skipped"]}),
     }
 
     definicion = {

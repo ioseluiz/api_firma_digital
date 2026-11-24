@@ -238,8 +238,9 @@ POST /api/v1/visor
 - **Cada SAS vale 7 días como máximo.** La cuenta tiene la clave compartida deshabilitada, así que el SAS se
   firma con una clave de delegación de usuario (identidad administrada), y Azure la limita a 7 días.
   `VISOR_DIAS` se recorta a ese tope. Con la URL corta eso no importa: cada apertura recibe una SAS nueva.
-- Es idempotente (reintentos de F01 sobrescriben). Los blobs que queden los borra la política de
-  ciclo de vida del contenedor a los 30 días.
+- Es idempotente (reintentos de F01 sobrescriben; F02 vuelve a publicar con el PDF firmado para que la app
+  muestre el documento con la firma). Los blobs que queden los borra la política de ciclo de vida del
+  contenedor a los 30 días.
 - `503 visor_no_disponible` cuando `VISOR_ORIGEN=ninguno` (desarrollo local sin Azure).
 - **Rutas anónimas para elegir la posición de la firma** (mismo token que `abrir`, CORS `*`, caché privada 5 min):
   `GET …/visor/{codigo}/info/{token}` → `{"paginas": n, "tamanos": [{"pagina", "ancho_mm", "alto_mm"}, …]}`;

@@ -620,7 +620,6 @@
                       "item/Hash_Firmado": "@body('Analizar_respuesta')?['sha256']",
                       "item/Codigo_Verificacion": "@body('Analizar_respuesta')?['codigo_verificacion']",
                       "item/Url_Firmado": "@concat(triggerOutputs()?['body/Carpeta_Url'], '/Firmado.pdf')",
-                      "item/Url_Visor": "",
                       "item/Error_Detalle": ""
                     },
                     "authentication": "@parameters('$authentication')"
@@ -908,21 +907,29 @@
             ]
           }
         },
-        "Borrar_visor": {
+        "Publicar_visor_firmado": {
           "type": "Http",
           "inputs": {
-            "method": "DELETE",
-            "uri": "@{parameters('ini_FIRMA_ApiUrl (ini_FIRMA_ApiUrl)')}/visor/@{triggerOutputs()?['body/Codigo']}",
+            "method": "POST",
+            "uri": "@{parameters('ini_FIRMA_ApiUrl (ini_FIRMA_ApiUrl)')}/visor",
             "headers": {
+              "Content-Type": "application/json",
               "x-functions-key": "@parameters('ini_FIRMA_ApiKey (ini_FIRMA_ApiKey)')",
               "X-Correlation-Id": "@workflow()?['run']?['name']"
             },
+            "body": {
+              "solicitud_id": "@triggerOutputs()?['body/ID']",
+              "codigo": "@triggerOutputs()?['body/Codigo']",
+              "pdf_base64": "@body('Analizar_respuesta')?['pdf_firmado_base64']"
+            },
             "retryPolicy": {
-              "type": "none"
+              "type": "fixed",
+              "count": 2,
+              "interval": "PT20S"
             }
           },
           "limit": {
-            "timeout": "PT30S"
+            "timeout": "PT1M"
           },
           "runtimeConfiguration": {
             "secureData": {
@@ -941,7 +948,7 @@
           "type": "Compose",
           "inputs": "ok",
           "runAfter": {
-            "Borrar_visor": [
+            "Publicar_visor_firmado": [
               "Succeeded",
               "Failed",
               "TimedOut",
