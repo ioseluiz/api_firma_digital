@@ -146,7 +146,8 @@ Petición completa:
 | Campo | Notas |
 |---|---|
 | `codigo` | Código de la solicitud; va a los metadatos del PDF (y al sello, si se pide). |
-| `firmante.imagen_id` | Nombre del archivo en el origen de imágenes (`gerente.png`, `suplente.png`). Solo letras, dígitos, `_ . -`. Lo decide el flujo según `FIRMA_Roles`. |
+| `firmante.imagen_id` | Nombre del archivo en el origen de imágenes (`gerente.png`, `suplente.png`). Solo letras, dígitos, `_ . -`. Lo decide el flujo según `FIRMA_Roles`. Opcional si viene `imagen_base64`. |
+| `firmante.imagen_base64` | PNG o JPEG en base64 (≤ 2 MB; acepta el objeto `$content` del conector). Es la imagen que el gerente sube en la app («Mi firma», adjunto de su fila en `FIRMA_Roles`); si viene, manda sobre `imagen_id`. |
 | `firmante.nombre`, `cargo` | Opcionales. Solo se imprimen si `sello.texto` es `true`. |
 | `fecha_firma` | Hora local de Panamá en ISO 8601, sin zona. Entra en el código de verificación y, si hay sello, se imprime. |
 | `posicion.pagina` | `0` = última página; `n` = página `n` (base 1). |
