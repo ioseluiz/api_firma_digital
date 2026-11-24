@@ -164,6 +164,18 @@ def _resumen_validacion(err: ValidationError) -> str:
     return "; ".join(partes)
 
 
+@app.timer_trigger(schedule="0 */5 * * * *", arg_name="latido", run_on_startup=False, use_monitor=False)
+def mantener_caliente(latido: func.TimerRequest) -> None:
+    """Latido cada 5 min. Flex Consumption apaga la instancia sin tráfico y el primer visor tras el reposo tardaba
+    varios segundos: el control PDF de Power Apps se rendía y no reintentaba (medido 2026-11-24). Tocar el almacén
+    del visor mantiene la instancia y las credenciales calientes; la app además reintenta sola cada 12 s."""
+    try:
+        obtener_visor()
+        log.info("latido ok")
+    except Exception:
+        log.exception("latido con error")
+
+
 @app.route(route="v1/salud", methods=["GET"])
 def salud(req: func.HttpRequest) -> func.HttpResponse:
     correlation_id = req.headers.get("X-Correlation-Id") or str(uuid.uuid4())
