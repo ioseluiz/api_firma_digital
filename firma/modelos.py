@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import model_validator, BaseModel, Field, field_validator
 
 
 def normalizar_base64(v):
@@ -47,11 +47,29 @@ class Firmante(BaseModel):
     cargo: str = Field(default="", max_length=160)
     email: str = Field(default="", max_length=160)
     imagen_id: str = Field(
-        min_length=1,
+        default="",
         max_length=80,
-        pattern=r"^[A-Za-z0-9_.-]+$",
-        description="Nombre del archivo de firma en el origen (p. ej. 'gerente.png'). Sin rutas.",
+        pattern=r"^[A-Za-z0-9_.-]*$",
+        description="Nombre del archivo de firma en el origen (p. ej. 'gerente.png'). Sin rutas. Obligatorio si no viene imagen_base64.",
     )
+    imagen_base64: str = Field(
+        default="",
+        max_length=4_000_000,
+        description="La imagen de firma (PNG o JPEG) en base64, tal como la guarda el gerente en la app (adjunto de FIRMA_Roles). Si viene, manda sobre imagen_id.",
+    )
+
+    @field_validator("imagen_base64", mode="before")
+    @classmethod
+    def _normalizar_imagen(cls, v):
+        if v is None or v == "":
+            return ""
+        return normalizar_base64(v)
+
+    @model_validator(mode="after")
+    def _alguna_imagen(self):
+        if not self.imagen_base64 and not self.imagen_id:
+            raise ValueError("Hace falta firmante.imagen_id o firmante.imagen_base64.")
+        return self
 
 
 def lienzo_a_tupla(lienzo: Optional[str]) -> Optional[tuple[float, float]]:

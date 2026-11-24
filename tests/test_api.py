@@ -244,3 +244,24 @@ def test_texto_del_sello_configurable(app_local, pdf_1_pagina, monkeypatch):
     datos = json.loads(resp.get_body())
     doc = pymupdf.open(stream=base64.b64decode(datos["pdf_firmado_base64"]), filetype="pdf")
     assert "Aprobado por Ing. Juan Pérez el 18/11/2026 14:05" in doc[0].get_text()
+
+
+def test_firmar_con_imagen_base64_manda_sobre_imagen_id(app_local, pdf_1_pagina, imagen_firma):
+    c = cuerpo_valido(pdf_1_pagina)
+    c["firmante"] = {"imagen_id": "nadie.png", "imagen_base64": base64.b64encode(imagen_firma).decode("ascii")}
+    resp = app_local.firmar.build().get_user_function()(peticion(c))
+    assert resp.status_code == 200, resp.get_body()
+
+
+def test_firmar_imagen_base64_que_no_es_imagen(app_local, pdf_1_pagina):
+    c = cuerpo_valido(pdf_1_pagina)
+    c["firmante"] = {"imagen_base64": base64.b64encode(b"hola").decode("ascii")}
+    resp = app_local.firmar.build().get_user_function()(peticion(c))
+    assert resp.status_code == 400 and b"PNG o JPEG" in resp.get_body()
+
+
+def test_firmar_sin_ninguna_imagen(app_local, pdf_1_pagina):
+    c = cuerpo_valido(pdf_1_pagina)
+    c["firmante"] = {"nombre": "x"}
+    resp = app_local.firmar.build().get_user_function()(peticion(c))
+    assert resp.status_code == 400

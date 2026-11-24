@@ -383,6 +383,24 @@ def visor_pagina(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse("Visor no disponible.", status_code=500, mimetype="text/plain", headers=_cors())
 
 
+_MAX_IMAGEN_BYTES = 2 * 1024 * 1024
+
+
+def _decodificar_imagen(b64: str) -> bytes:
+    """PNG o JPEG en base64 (acepta el objeto $content del conector, como el PDF)."""
+    if isinstance(b64, dict):
+        b64 = b64.get("$content", "")
+    try:
+        datos = base64.b64decode(b64, validate=False)
+    except Exception as e:
+        raise PeticionInvalida("firmante.imagen_base64 no es base64 válido.") from e
+    if len(datos) > _MAX_IMAGEN_BYTES:
+        raise PeticionInvalida("La imagen de firma supera los 2 MB.")
+    if not (datos.startswith(b"\x89PNG\r\n\x1a\n") or datos.startswith(b"\xff\xd8\xff")):
+        raise PeticionInvalida("La imagen de firma debe ser PNG o JPEG.")
+    return datos
+
+
 @app.route(route="v1/firmar", methods=["POST"])
 def firmar(req: func.HttpRequest) -> func.HttpResponse:
     correlation_id = req.headers.get("X-Correlation-Id") or str(uuid.uuid4())
@@ -410,7 +428,11 @@ def firmar(req: func.HttpRequest) -> func.HttpResponse:
         if len(pdf) > maximo:
             raise PdfDemasiadoGrande(f"El PDF supera el máximo de {maximo // (1024 * 1024)} MB.")
 
-        imagen = obtener_origen().obtener(peticion.firmante.imagen_id)
+        if peticion.firmante.imagen_base64:
+            # La imagen que el gerente gestiona en la app (adjunto de su fila en FIRMA_Roles) manda sobre el origen fijo.
+            imagen = _decodificar_imagen(peticion.firmante.imagen_base64)
+        else:
+            imagen = obtener_origen().obtener(peticion.firmante.imagen_id)
 
         params = ParametrosEstampado(
             codigo=peticion.codigo,
